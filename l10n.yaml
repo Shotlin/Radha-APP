@@ -1,0 +1,11 @@
+# Flutter intl_utils config consumed by `flutter gen-l10n`.
+# Generates `app_localizations.dart` (and per-locale stubs) from the .arb
+# files in `lib/l10n/`. Output is intentionally placed under
+# `lib/l10n/generated/` so the IDE doesn't index the build artefacts as
+# hand-edited source.
+arb-dir: lib/l10n
+output-dir: lib/l10n/generated
+template-arb-file: app_en.arb
+output-localization-file: app_localizations.dart
+output-class: AppLocalizations
+nullable-getter: false

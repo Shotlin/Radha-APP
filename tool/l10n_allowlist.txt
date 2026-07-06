@@ -1,0 +1,33 @@
+# l10n literal guard — allowlist of literals that are intentionally NOT routed
+# through AppLocalizations. One exact literal per line. '#' starts a comment.
+#
+# Canonical allergen vocabulary (kAllergenOptions in allergen_profile_screen).
+# These const labels are an English fallback only; the rendered chip text and
+# semantics use allergenLabel(l10n, option). Keep them in sync with BE-37.
+Peanut
+Tree nut
+Dairy
+Eggs
+Soy
+Wheat
+Fish
+Shellfish
+Sesame
+Gluten
+Mustard
+Celery
+Lupin
+Molluscs
+Sulphites
+
+# Home catalog category names (kRadhaCategories in home_catalog.dart).
+# These const labels are an English fallback only; the rendered tile text and
+# browse titles use categoryLabel(l10n, id). Keep in sync with the category* ARB keys.
+Biscuits & Snacks
+Breakfast & Spreads
+Dairy & Eggs
+Beverages
+Staples & Grains
+Personal Care
+Household
+Frozen

@@ -1,0 +1,176 @@
+name: radha_app
+description: "radha_app - Retail Assistant for Data, Health & Audits."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.5.1
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # Networking
+  dio: ^5.7.0
+  # retrofit pinned to 4.4.x: retrofit 4.5+ adds `Parser.DartMappable` which
+  # the 9.x generator doesn't switch on, breaking codegen.
+  retrofit: '>=4.4.1 <4.5.0'
+  dio_smart_retry: ^7.0.1
+  connectivity_plus: ^6.0.5
+
+  # Codegen runtime annotations
+  json_annotation: ^4.9.0
+  freezed_annotation: ^2.4.4
+
+  # Local persistence
+  drift: ^2.20.0
+  drift_flutter: ^0.2.2
+  sqlite3_flutter_libs: ^0.5.24
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # Secure storage
+  flutter_secure_storage: ^9.2.2
+
+  # Camera + on-device ML
+  mobile_scanner: ^5.2.3
+  google_mlkit_text_recognition: ^0.13.1
+  # Live-preview camera for auto-capture-when-steady label scanning.
+  camera: ^0.11.0
+
+  # Utilities
+  intl: ^0.20.2
+  package_info_plus: ^8.0.2
+  uuid: ^4.4.0
+
+  # UI primitives
+  cached_network_image: ^3.4.1
+  image_picker: ^1.1.2
+  pinput: ^5.0.0
+  share_plus: ^10.0.2
+  table_calendar: ^3.1.2
+  fl_chart: ^0.69.0
+
+  # External URL launching (mailto:, tel:, https in external browser)
+  # used by the Support / Feedback screen (FE-37) and Settings about
+  # links (Terms, Privacy). Heavy webview packages are intentionally
+  # omitted in V1 — external_application mode is sufficient.
+  url_launcher: ^6.3.0
+
+  # Payments — Razorpay Standard Checkout (UPI / cards / netbanking).
+  # Plugin auto-registers its activity on Android; needs INTERNET permission
+  # (declared in AndroidManifest). Real flow lives in
+  # razorpay_checkout_sheet.dart; the Key ID is provided by the server's
+  # /payments/checkout response, so no Razorpay key is compiled into the app.
+  razorpay_flutter: ^1.4.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+  # Code generation
+  build_runner: ^2.4.13
+  drift_dev: ^2.20.0
+  json_serializable: ^6.8.0
+  # retrofit_generator >= 9.1.7 is required for analyzer compatibility on
+  # Dart 3.12 (earlier patches required the removed `_macros` SDK package).
+  retrofit_generator: '>=9.1.7 <9.2.0'
+  freezed: ^2.5.7
+
+  # Testing
+  mocktail: ^1.0.4
+  http_mock_adapter: ^0.6.1
+
+  # Local-only env loader (used by tooling/test harnesses, never bundled
+  # into release builds). Listed dev-side per the foundation task spec.
+  flutter_dotenv: ^5.2.1
+
+  # Brand asset generators (Task 21). These run at build-time only and
+  # write into android/ios/web; they are never bundled into the app.
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.4.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    # ── Mor mascot — nine static mood frames ──────────────────────────────
+    - assets/v2/character/mor/static/idle.png
+    - assets/v2/character/mor/static/greet.png
+    - assets/v2/character/mor/static/think.png
+    - assets/v2/character/mor/static/work.png
+    - assets/v2/character/mor/static/celebrate.png
+    - assets/v2/character/mor/static/shelter.png
+    - assets/v2/character/mor/static/concern.png
+    - assets/v2/character/mor/static/guard.png
+    - assets/v2/character/mor/static/sleep.png
+    # Mor scenes (full-figure companion moments — WebP)
+    - assets/v2/character/mor/scenes/
+    # ── Health-flag icons (scan result WebP badges) ───────────────────────
+    - assets/v2/icons/health/
+    # ── Home illustrations (all 3 files in illustration/ root) ──────────
+    - assets/v2/illustration/
+    # ── Business hero scenes (v3 — photorealistic kirana owner + Mor) ─────
+    - assets/v2/illustration/business/
+    - assets/v2/illustrations/
+    - assets/v2/states/
+    - assets/v2/banners/
+    - assets/v2/plus/
+
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Bold.ttf
+          weight: 700
+
+# ---------------------------------------------------------------------------
+# Brand asset generators (Task 21)
+# ---------------------------------------------------------------------------
+# Run with:
+#   flutter pub run flutter_launcher_icons
+#   flutter pub run flutter_native_splash:create
+#
+# Brand color: orange #EA580C (see lib/design/tokens.dart).
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/v2/brand/icon.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFBF5"
+  adaptive_icon_foreground: "assets/v2/brand/icon_foreground.png"
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/v2/brand/icon.png"
+    background_color: "#FFFBF5"
+    theme_color: "#EA580C"
+
+flutter_native_splash:
+  color: "#FFFBF5"
+  image: "assets/v2/brand/splash.png"
+  android_12:
+    color: "#FFFBF5"
+    image: "assets/v2/brand/splash.png"
+  android: true
+  ios: true
+  web: false
