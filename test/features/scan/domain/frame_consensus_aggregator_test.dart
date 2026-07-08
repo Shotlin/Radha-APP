@@ -198,4 +198,174 @@ void main() {
       expect(statuses.containsKey('potassium'), isFalse);
     });
   });
+
+  group('fuzzy vote clustering (spec A2.1)', () {
+    test('a jittered single-digit misread pools into one cluster instead of fragmenting', () {
+      final agg = FrameConsensusAggregator(
+        config: const ConsensusConfig(requiredAgreement: 3),
+      );
+      // Without clustering this would be two 1-2-vote exact-match groups,
+      // neither reaching requiredAgreement=3, so the field would never
+      // confirm even though every frame agrees to within one OCR-noisy
+      // digit.
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-03-15', confidence: 0.85));
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-03-16', confidence: 0.85));
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-03-15', confidence: 0.85));
+
+      final status = agg.fieldStatus(LabelField.expiryDate);
+      expect(status.confirmed, isTrue);
+      expect(status.agreementCount, 3);
+      // Representative = the exact value with the highest cumulative
+      // confidence -- '15' appeared twice, '16' once.
+      expect(status.leadingValue, '2026-03-15');
+    });
+
+    test('non-date fields (batch/SKU) cluster on distance <=1 too', () {
+      final agg = FrameConsensusAggregator(
+        config: const ConsensusConfig(requiredAgreement: 3),
+      );
+      agg.addFrame(_frame(LabelField.batchNumber, 'BC2201', confidence: 0.85));
+      agg.addFrame(_frame(LabelField.batchNumber, 'BC2201', confidence: 0.85));
+      agg.addFrame(_frame(LabelField.batchNumber, 'BC22O1', confidence: 0.7));
+
+      final status = agg.fieldStatus(LabelField.batchNumber);
+      expect(status.confirmed, isTrue);
+      expect(status.agreementCount, 3);
+      expect(status.leadingValue, 'BC2201');
+    });
+
+    test('genuinely distant values never cluster together', () {
+      final agg = FrameConsensusAggregator(
+        config: const ConsensusConfig(requiredAgreement: 3),
+      );
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-03-15'));
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-09-20'));
+      agg.addFrame(_frame(LabelField.expiryDate, '2026-03-15'));
+
+      final status = agg.fieldStatus(LabelField.expiryDate);
+      // '2026-03-15' has 2 votes, '2026-09-20' has 1 -- neither reaches
+      // requiredAgreement=3 since they're too far apart to pool.
+      expect(status.confirmed, isFalse);
+    });
+  });
+
+  group('cross-field validation (spec A2.2)', () {
+    test('an expiry before its own MFG date is demoted and reverts to unconfirmed with no runner-up', () {
+      final agg = FrameConsensusAggregator();
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.mfgDate, '2026-06-01', confidence: 0.9));
+      }
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-01-01', confidence: 0.9));
+      }
+
+      final mfgStatus = agg.fieldStatus(LabelField.mfgDate);
+      expect(mfgStatus.confirmed, isTrue);
+
+      final expiryStatus = agg.fieldStatus(LabelField.expiryDate);
+      expect(expiryStatus.confirmed, isFalse);
+      expect(expiryStatus.combinedConfidence, lessThan(0.9));
+    });
+
+    test('cross-field violation demotes an implausible expiry and re-elects a valid runner-up', () {
+      final agg = FrameConsensusAggregator();
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.mfgDate, '2026-06-01', confidence: 0.9));
+      }
+      // BAD: read more often and more confidently, so it's the natural
+      // leader before cross-field validation steps in.
+      for (var i = 0; i < 4; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-01-01', confidence: 0.9));
+      }
+      // GOOD: fewer votes, slightly lower confidence, but plausible
+      // (after MFG) -- the correct runner-up.
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-08-15', confidence: 0.85));
+      }
+
+      final mfgStatus = agg.fieldStatus(LabelField.mfgDate);
+      expect(mfgStatus.confirmed, isTrue);
+      expect(mfgStatus.leadingValue, '2026-06-01');
+
+      final expiryStatus = agg.fieldStatus(LabelField.expiryDate);
+      final corrections = agg.takeCorrections();
+
+      expect(expiryStatus.confirmed, isTrue);
+      expect(expiryStatus.leadingValue, '2026-08-15');
+      expect(corrections, hasLength(1));
+      expect(corrections.single.oldValue, '2026-01-01');
+      expect(corrections.single.newValue, '2026-08-15');
+      expect(corrections.single.reason, contains('R1'));
+    });
+
+    test('a plausible expiry/MFG pair triggers no cross-field correction', () {
+      final agg = FrameConsensusAggregator();
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.mfgDate, '2026-06-01', confidence: 0.9));
+      }
+      for (var i = 0; i < 3; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-12-01', confidence: 0.9));
+      }
+      agg.fieldStatus(LabelField.mfgDate);
+      final expiryStatus = agg.fieldStatus(LabelField.expiryDate);
+      expect(expiryStatus.confirmed, isTrue);
+      expect(expiryStatus.leadingValue, '2026-12-01');
+      expect(agg.takeCorrections(), isEmpty);
+    });
+  });
+
+  group('post-accept reconciliation (spec A2.3) -- scripted replay', () {
+    test('a wrong value confirms first, then a stronger sustained run replaces it with exactly one FieldCorrection', () {
+      final agg = FrameConsensusAggregator();
+      final allCorrections = <FieldCorrection>[];
+
+      // First ~5 frames: wrong value, confirms and becomes the incumbent
+      // (as if already shown to the user in an accept sheet).
+      for (var i = 0; i < 5; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-01-15', confidence: 0.85));
+      }
+      final afterWrong = agg.fieldStatus(LabelField.expiryDate);
+      allCorrections.addAll(agg.takeCorrections());
+      expect(afterWrong.confirmed, isTrue);
+      expect(afterWrong.leadingValue, '2026-01-15');
+
+      // Scanning continues (accept sheet still open): 6 more frames read
+      // the actually-correct value. Polled every frame, mirroring how the
+      // live scanner screen would call fieldStatus per recognized frame.
+      for (var i = 0; i < 6; i++) {
+        agg.addFrame(_frame(LabelField.expiryDate, '2026-09-20', confidence: 0.9));
+        agg.fieldStatus(LabelField.expiryDate);
+        allCorrections.addAll(agg.takeCorrections());
+      }
+
+      final finalStatus = agg.fieldStatus(LabelField.expiryDate);
+      allCorrections.addAll(agg.takeCorrections());
+
+      expect(finalStatus.confirmed, isTrue);
+      expect(finalStatus.leadingValue, '2026-09-20');
+      expect(allCorrections, hasLength(1));
+      expect(allCorrections.single.oldValue, '2026-01-15');
+      expect(allCorrections.single.newValue, '2026-09-20');
+      expect(allCorrections.single.reason, 'outvoted');
+    });
+
+    test('a couple of stray contrary frames do not flip an already-confirmed value', () {
+      final agg = FrameConsensusAggregator();
+      for (var i = 0; i < 5; i++) {
+        agg.addFrame(_frame(LabelField.batchNumber, 'BC2201', confidence: 0.85));
+      }
+      final confirmed = agg.fieldStatus(LabelField.batchNumber);
+      expect(confirmed.confirmed, isTrue);
+      agg.takeCorrections();
+
+      // Two stray misreads -- not enough votes or margin to be a genuine
+      // challenger (spec requires >=5 votes AND a +0.15 combined margin).
+      agg.addFrame(_frame(LabelField.batchNumber, 'ZZ9999', confidence: 0.9));
+      agg.addFrame(_frame(LabelField.batchNumber, 'ZZ9999', confidence: 0.9));
+
+      final status = agg.fieldStatus(LabelField.batchNumber);
+      expect(status.leadingValue, 'BC2201');
+      expect(agg.takeCorrections(), isEmpty);
+    });
+  });
 }

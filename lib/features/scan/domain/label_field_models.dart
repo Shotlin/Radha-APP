@@ -97,6 +97,28 @@ class FieldConsensus {
   bool get hasAnyReading => leadingValue != null;
 }
 
+/// Emitted by [FrameConsensusAggregator] (frame_consensus_aggregator.dart)
+/// when a confirmed field's leading value is replaced by a stronger,
+/// sustained challenger — the "post-accept reconciliation" fix so a value
+/// shown to the user as confirmed can still be visibly corrected rather
+/// than silently swapped or frozen forever. The live scanner UI (Phase 7)
+/// consumes this to drive the strikethrough/slide-in correction animation.
+class FieldCorrection {
+  const FieldCorrection({
+    required this.field,
+    required this.oldValue,
+    required this.newValue,
+    required this.reason,
+  });
+
+  final LabelField field;
+  final String oldValue;
+  final String newValue;
+
+  /// e.g. `'outvoted'`, `'cross-field: R1 expiry must be after MFG'`.
+  final String reason;
+}
+
 /// Final payload handed back to the caller (expiry form / label-analysis
 /// screen) when the user taps Accept & Save.
 class LiveScanResult {
