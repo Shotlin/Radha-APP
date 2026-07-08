@@ -67,18 +67,58 @@ class LabelFieldExtractor {
     'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
   };
 
+  // Shared keyword alternations so the "does this line mention EXP/MFG"
+  // indicator regexes and the "EXP: <date>" prefix regexes never drift
+  // apart. DOM/DOE are 3-letter sequences that could otherwise appear in
+  // ordinary English text; the `\b` boundaries plus (for the prefix
+  // regexes) the mandatory trailing date triplet keep them safe.
+  static const String _expKeywords =
+      r'M\.?EXP\b|EXP\.?\s?DTE?\b|EXP\b|EXPIRY\s*DTE?|EXPIRY|'
+      r'BEST\s*BEFORE\s*END|BEST\s*BEFORE|BBE\b|BB\b|'
+      r'USE\s*BEFORE|USE\s*BY|VALID\s*UP\s*TO|DOE\b';
+  static const String _mfgKeywords =
+      r'MFG\.?\s?DTE?\b|MFG\b|MFD\.?\s?ON\b|MFD\b|'
+      r'MANUFACTUR(?:ED|ING)|DT\.?\s?OF\.?\s?MFG\b|DOM\b|'
+      r'PKD\.?\s?ON\b|PKD\b|PACKED\s*ON|PACKED|'
+      r'DATE\s*OF\s*PKG|PKG\s*DATE';
+
+  // Digit-position character class that also accepts the OCR confusions
+  // `normalizeOcrDigits` knows how to fix — lets the "noisy" regex variants
+  // below capture a date-shaped span even when digits were misread as
+  // letters, so it can be normalized and re-parsed instead of silently
+  // failing to match at all.
+  static const String _noisyDigit = r'[0-9OoSsIl|BZ]';
+
   static final RegExp _expPrefixNumeric = RegExp(
-    r'(?:EXP\b|EXPIRY|BEST\s*BEFORE|USE\s*BY|BB\b)[\s:.-]*'
+    '(?:$_expKeywords)[\\s:.-]*'
     r'(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})',
+    caseSensitive: false,
+  );
+  static final RegExp _expPrefixNumericNoisy = RegExp(
+    '(?:$_expKeywords)[\\s:.-]*'
+    '($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{2,4})',
     caseSensitive: false,
   );
   static final RegExp _mfgPrefixNumeric = RegExp(
-    r'(?:MFG\b|MFD\b|MANUFACTUR(?:ED|ING)|PKD\b|PACKED)[\s:.-]*'
+    '(?:$_mfgKeywords)[\\s:.-]*'
     r'(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})',
     caseSensitive: false,
   );
+  static final RegExp _mfgPrefixNumericNoisy = RegExp(
+    '(?:$_mfgKeywords)[\\s:.-]*'
+    '($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{2,4})',
+    caseSensitive: false,
+  );
   static final RegExp _isoDate = RegExp(r'\b(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b');
+  static final RegExp _isoDateNoisy = RegExp(
+    '\\b($_noisyDigit{4})[\\/\\-.]($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{1,2})\\b',
+    caseSensitive: false,
+  );
   static final RegExp _bareDmy = RegExp(r'\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b');
+  static final RegExp _bareDmyNoisy = RegExp(
+    '\\b($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{1,2})[\\/\\-.]($_noisyDigit{2,4})\\b',
+    caseSensitive: false,
+  );
   static final RegExp _monthYear = RegExp(r'\b(\d{1,2})[\/\-.](\d{2,4})\b');
 
   // Alternates over actual month names/abbreviations only — a generic
@@ -93,14 +133,8 @@ class LabelFieldExtractor {
     caseSensitive: false,
   );
 
-  static final RegExp _expIndicator = RegExp(
-    r'EXP\b|EXPIRY|BEST\s*BEFORE|USE\s*BY|BB\b',
-    caseSensitive: false,
-  );
-  static final RegExp _mfgIndicator = RegExp(
-    r'MFG\b|MFD\b|MANUFACTUR(?:ED|ING)|PKD\b|PACKED',
-    caseSensitive: false,
-  );
+  static final RegExp _expIndicator = RegExp(_expKeywords, caseSensitive: false);
+  static final RegExp _mfgIndicator = RegExp(_mfgKeywords, caseSensitive: false);
 
   /// "Best before 6 months from MFG" / "Use before 12 months from manufacture"
   /// / "18 months from packing date" — a shelf-life duration rather than an
@@ -111,6 +145,98 @@ class LabelFieldExtractor {
     r'(?:MFG|MFD|MANUFACTURE|MANUFACTURING|PACKING|PACKAGING|PKD)',
     caseSensitive: false,
   );
+
+  // ─── Exclusion guards ───────────────────────────────────────────────────
+  //
+  // Lines carrying pricing, contact, or regulatory boilerplate frequently
+  // contain date-shaped digit runs (an MRP line's "12/25" tax code, a
+  // customer-care phone number, a 6-digit PIN) that must never be read as
+  // an expiry/MFG date. Checked once per line before any date regex runs.
+  static final RegExp _excludedLinePattern = RegExp(
+    r'₹|RS\.?\s|MRP|INCL(?:USIVE)?|TAXES?|'
+    r'(?:\+91[-\s]?)?[6-9]\d{9}|'
+    r'CUSTOMER\s*CARE|TOLL\s*FREE|LIC(?:ENSE)?\s*NO|FSSAI|'
+    r'PIN[\s:-]*\d{6}',
+    caseSensitive: false,
+  );
+
+  static bool _isExcludedLine(String line) => _excludedLinePattern.hasMatch(line);
+
+  // ─── OCR digit-noise recovery ───────────────────────────────────────────
+
+  static const Map<String, String> _ocrDigitConfusions = {
+    'O': '0', 'o': '0',
+    'S': '5', 's': '5',
+    'I': '1', 'l': '1', '|': '1',
+    'B': '8',
+    'Z': '2',
+  };
+
+  /// Applies common OCR digit confusions (O→0, S→5, I/l/|→1, B→8, Z→2) to
+  /// [span]. Only meant to run as a fallback AFTER a strict digit-only parse
+  /// has already failed — callers must not apply this to month-name spans,
+  /// where those letters are semantically load-bearing (e.g. "JAN" must
+  /// never become "1AN"). Returns `null` when substitution didn't change
+  /// anything, or when fewer than half the non-whitespace characters are
+  /// digits after substitution (guards against mangling non-date text that
+  /// merely happens to contain one of these letters).
+  static String? normalizeOcrDigits(String span) {
+    final buffer = StringBuffer();
+    for (final ch in span.split('')) {
+      buffer.write(_ocrDigitConfusions[ch] ?? ch);
+    }
+    final normalized = buffer.toString();
+    if (normalized == span) return null;
+
+    final nonSpace = normalized.replaceAll(RegExp(r'\s'), '');
+    if (nonSpace.isEmpty) return null;
+    final digitCount =
+        nonSpace.split('').where((c) => RegExp(r'\d').hasMatch(c)).length;
+    if (digitCount / nonSpace.length < 0.5) return null;
+
+    return normalized;
+  }
+
+  /// Parses a D/M/Y triplet that may contain OCR-confused digits: tries the
+  /// strict parse first (cheap, no false "corrected" provenance on already-
+  /// clean input), and only falls back to per-component normalization when
+  /// the strict parse fails AND normalization actually changed something.
+  static ({DateTime date, bool wasNormalized})? _numericDmyOcrAware(
+    String d,
+    String m,
+    String y,
+  ) {
+    final direct = _numericDmy(d, m, y);
+    if (direct != null) return (date: direct, wasNormalized: false);
+
+    final nd = normalizeOcrDigits(d) ?? d;
+    final nm = normalizeOcrDigits(m) ?? m;
+    final ny = normalizeOcrDigits(y) ?? y;
+    if (nd == d && nm == m && ny == y) return null;
+
+    final normalizedDate = _numericDmy(nd, nm, ny);
+    if (normalizedDate == null) return null;
+    return (date: normalizedDate, wasNormalized: true);
+  }
+
+  /// ISO (Y/M/D) counterpart of [_numericDmyOcrAware].
+  static ({DateTime date, bool wasNormalized})? _isoYmdOcrAware(
+    String y,
+    String m,
+    String d,
+  ) {
+    final direct = _isoYmd(y, m, d);
+    if (direct != null) return (date: direct, wasNormalized: false);
+
+    final ny = normalizeOcrDigits(y) ?? y;
+    final nm = normalizeOcrDigits(m) ?? m;
+    final nd = normalizeOcrDigits(d) ?? d;
+    if (ny == y && nm == m && nd == d) return null;
+
+    final normalizedDate = _isoYmd(ny, nm, nd);
+    if (normalizedDate == null) return null;
+    return (date: normalizedDate, wasNormalized: true);
+  }
 
   static ({FieldCandidate? expiry, FieldCandidate? mfg}) _extractDateCandidates(
     String text,
@@ -152,40 +278,98 @@ class LabelFieldExtractor {
       }
     }
 
+    // OCR-noise fallback for the two prefixed patterns above: only fires
+    // when the strict digit-only regex didn't already match/parse a date
+    // AND normalization actually changed something, so clean input never
+    // pays the confidence penalty or gets a spurious "corrected" label.
+    for (final m in _expPrefixNumericNoisy.allMatches(text)) {
+      final result = _numericDmyOcrAware(m.group(1)!, m.group(2)!, m.group(3)!);
+      if (result != null && result.wasNormalized) {
+        expiry = _preferHigher(expiry, FieldCandidate(
+          field: LabelField.expiryDate,
+          value: _iso(result.date),
+          raw: m.group(0)!.trim(),
+          confidence: 0.92 * 0.95,
+          derivedFrom: 'ocr-normalized: ${m.group(0)!.trim()}',
+        ));
+      }
+    }
+    for (final m in _mfgPrefixNumericNoisy.allMatches(text)) {
+      final result = _numericDmyOcrAware(m.group(1)!, m.group(2)!, m.group(3)!);
+      if (result != null && result.wasNormalized) {
+        mfg = _preferHigher(mfg, FieldCandidate(
+          field: LabelField.mfgDate,
+          value: _iso(result.date),
+          raw: m.group(0)!.trim(),
+          confidence: 0.9 * 0.95,
+          derivedFrom: 'ocr-normalized: ${m.group(0)!.trim()}',
+        ));
+        mfgDateForDerivation ??= result.date;
+      }
+    }
+
     // Line-scoped fallbacks: a date on a line containing an EXP/MFG keyword
     // but not immediately prefixing it (e.g. "Best Before: see cap — 15 JAN
     // 2026"), then unprefixed dates as a last resort (assumed expiry, since
     // that's the field users scan for far more often than MFG).
     for (final line in text.split('\n')) {
+      // Pricing/contact/regulatory boilerplate can contain date-shaped
+      // digit runs (an MRP tax code, a phone number, a PIN) — never let
+      // those reach the date regexes below.
+      if (_isExcludedLine(line)) continue;
+
       final hasExpWord = _expIndicator.hasMatch(line);
       final hasMfgWord = _mfgIndicator.hasMatch(line);
 
       final iso = _isoDate.firstMatch(line);
+      DateTime? isoDate;
+      String? isoRaw;
+      String? isoDerivedFrom;
+      double isoConfidence = 0.88;
       if (iso != null) {
-        final date = _isoYmd(iso.group(1)!, iso.group(2)!, iso.group(3)!);
-        if (date != null) {
-          if (hasMfgWord) {
-            mfg = _preferHigher(mfg, FieldCandidate(
-              field: LabelField.mfgDate,
-              value: _iso(date),
-              raw: iso.group(0)!.trim(),
-              confidence: 0.88,
-            ));
-            mfgDateForDerivation ??= date;
-          } else if (hasExpWord) {
-            expiry = _preferHigher(expiry, FieldCandidate(
-              field: LabelField.expiryDate,
-              value: _iso(date),
-              raw: iso.group(0)!.trim(),
-              confidence: 0.88,
-            ));
-          } else {
-            unlabeled.add((
-              date: date,
-              raw: iso.group(0)!.trim(),
-              confidence: 0.88,
-            ));
+        isoDate = _isoYmd(iso.group(1)!, iso.group(2)!, iso.group(3)!);
+        isoRaw = iso.group(0)!.trim();
+      } else {
+        final isoNoisy = _isoDateNoisy.firstMatch(line);
+        if (isoNoisy != null) {
+          final result = _isoYmdOcrAware(
+            isoNoisy.group(1)!,
+            isoNoisy.group(2)!,
+            isoNoisy.group(3)!,
+          );
+          if (result != null && result.wasNormalized) {
+            isoDate = result.date;
+            isoRaw = isoNoisy.group(0)!.trim();
+            isoDerivedFrom = 'ocr-normalized: $isoRaw';
+            isoConfidence = 0.88 * 0.95;
           }
+        }
+      }
+      if (isoDate != null) {
+        final date = isoDate;
+        if (hasMfgWord) {
+          mfg = _preferHigher(mfg, FieldCandidate(
+            field: LabelField.mfgDate,
+            value: _iso(date),
+            raw: isoRaw!,
+            confidence: isoConfidence,
+            derivedFrom: isoDerivedFrom,
+          ));
+          mfgDateForDerivation ??= date;
+        } else if (hasExpWord) {
+          expiry = _preferHigher(expiry, FieldCandidate(
+            field: LabelField.expiryDate,
+            value: _iso(date),
+            raw: isoRaw!,
+            confidence: isoConfidence,
+            derivedFrom: isoDerivedFrom,
+          ));
+        } else {
+          unlabeled.add((
+            date: date,
+            raw: isoRaw!,
+            confidence: isoConfidence,
+          ));
         }
       }
 
@@ -222,34 +406,58 @@ class LabelFieldExtractor {
       }
 
       final bareDmy = _bareDmy.firstMatch(line);
+      DateTime? bareDmyDate;
+      String? bareDmyRaw;
+      String? bareDmyDerivedFrom;
+      double bareDmyConfidence = 0.8;
+      double bareDmyUnlabeledConfidence = 0.65;
       if (bareDmy != null) {
-        final date = _numericDmy(
+        bareDmyDate = _numericDmy(
           bareDmy.group(1)!,
           bareDmy.group(2)!,
           bareDmy.group(3)!,
         );
-        if (date != null) {
-          if (!hasExpWord && !hasMfgWord) {
-            unlabeled.add((
-              date: date,
-              raw: bareDmy.group(0)!.trim(),
-              confidence: 0.65,
-            ));
+        bareDmyRaw = bareDmy.group(0)!.trim();
+      } else {
+        final bareDmyNoisy = _bareDmyNoisy.firstMatch(line);
+        if (bareDmyNoisy != null) {
+          final result = _numericDmyOcrAware(
+            bareDmyNoisy.group(1)!,
+            bareDmyNoisy.group(2)!,
+            bareDmyNoisy.group(3)!,
+          );
+          if (result != null && result.wasNormalized) {
+            bareDmyDate = result.date;
+            bareDmyRaw = bareDmyNoisy.group(0)!.trim();
+            bareDmyDerivedFrom = 'ocr-normalized: $bareDmyRaw';
+            bareDmyConfidence = 0.8 * 0.95;
+            bareDmyUnlabeledConfidence = 0.65 * 0.95;
+          }
+        }
+      }
+      if (bareDmyDate != null) {
+        final date = bareDmyDate;
+        if (!hasExpWord && !hasMfgWord) {
+          unlabeled.add((
+            date: date,
+            raw: bareDmyRaw!,
+            confidence: bareDmyUnlabeledConfidence,
+          ));
+        } else {
+          final candidate = FieldCandidate(
+            field: hasMfgWord && !hasExpWord
+                ? LabelField.mfgDate
+                : LabelField.expiryDate,
+            value: _iso(date),
+            raw: bareDmyRaw!,
+            confidence: bareDmyConfidence,
+            derivedFrom: bareDmyDerivedFrom,
+          );
+          if (hasMfgWord && !hasExpWord) {
+            mfg = _preferHigher(mfg, candidate);
+            mfgDateForDerivation ??= date;
           } else {
-            final candidate = FieldCandidate(
-              field: hasMfgWord && !hasExpWord
-                  ? LabelField.mfgDate
-                  : LabelField.expiryDate,
-              value: _iso(date),
-              raw: bareDmy.group(0)!.trim(),
-              confidence: 0.8,
-            );
-            if (hasMfgWord && !hasExpWord) {
-              mfg = _preferHigher(mfg, candidate);
-              mfgDateForDerivation ??= date;
-            } else {
-              expiry = _preferHigher(expiry, candidate);
-            }
+            expiry = _preferHigher(expiry, candidate);
           }
         }
       }

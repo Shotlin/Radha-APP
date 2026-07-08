@@ -255,6 +255,189 @@ void main() {
     });
   });
 
+  group('Indian-label keyword coverage', () {
+    test('MEXP prefix', () {
+      final result = LabelFieldExtractor.extract('MEXP 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+      expect(result.byField[LabelField.expiryDate]?.confidence, 0.92);
+    });
+
+    test('EXP.DT prefix', () {
+      final result = LabelFieldExtractor.extract('EXP.DT 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('BBE (best-before-end abbreviation)', () {
+      final result = LabelFieldExtractor.extract('BBE 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('BEST BEFORE END (full phrase)', () {
+      final result = LabelFieldExtractor.extract('BEST BEFORE END 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('USE BEFORE', () {
+      final result = LabelFieldExtractor.extract('USE BEFORE 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('VALID UPTO (no space)', () {
+      final result = LabelFieldExtractor.extract('VALID UPTO 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('VALID UP TO (with space)', () {
+      final result = LabelFieldExtractor.extract('VALID UP TO 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('DOE (date of expiry)', () {
+      final result = LabelFieldExtractor.extract('DOE 15/03/2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+    });
+
+    test('MFG.DT prefix', () {
+      final result = LabelFieldExtractor.extract('MFG.DT 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+      expect(result.byField[LabelField.mfgDate]?.confidence, 0.9);
+    });
+
+    test('DOM (date of manufacture)', () {
+      final result = LabelFieldExtractor.extract('DOM 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('MFD.ON', () {
+      final result = LabelFieldExtractor.extract('MFD.ON 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('PKD.ON', () {
+      final result = LabelFieldExtractor.extract('PKD.ON 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('PACKED ON', () {
+      final result = LabelFieldExtractor.extract('PACKED ON 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('DATE OF PKG', () {
+      final result = LabelFieldExtractor.extract('DATE OF PKG 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('PKG DATE', () {
+      final result = LabelFieldExtractor.extract('PKG DATE 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+
+    test('DT.OF.MFG', () {
+      final result = LabelFieldExtractor.extract('DT.OF.MFG 10/01/2026');
+      expect(result.byField[LabelField.mfgDate]?.value, '2026-01-10');
+    });
+  });
+
+  group('OCR digit-noise recovery', () {
+    test('normalizeOcrDigits substitutes O/S/I/l/B/Z and leaves clean input alone', () {
+      expect(LabelFieldExtractor.normalizeOcrDigits('2O25'), '2025');
+      expect(LabelFieldExtractor.normalizeOcrDigits('O5'), '05');
+      expect(LabelFieldExtractor.normalizeOcrDigits('l5'), '15');
+      expect(LabelFieldExtractor.normalizeOcrDigits('S5'), '55');
+      // No confusable letters present -> nothing changed -> null.
+      expect(LabelFieldExtractor.normalizeOcrDigits('2025'), isNull);
+    });
+
+    test('normalizeOcrDigits refuses to mangle non-digit-majority text', () {
+      // "SEP" -> "5EP" is only 1/3 digits after substitution -> rejected,
+      // so a month-name span can never accidentally get "corrected".
+      expect(LabelFieldExtractor.normalizeOcrDigits('SEP'), isNull);
+    });
+
+    test('ISO date with OCR-confused digits recovers via EXP-line context', () {
+      final result = LabelFieldExtractor.extract('EXP 2O25-O3-15');
+      final candidate = result.byField[LabelField.expiryDate];
+      expect(candidate?.value, '2025-03-15');
+      expect(candidate?.confidence, closeTo(0.88 * 0.95, 0.001));
+      expect(candidate?.derivedFrom, contains('ocr-normalized'));
+    });
+
+    test('EXP-prefixed DMY date with OCR-confused digits', () {
+      final result = LabelFieldExtractor.extract('EXP: O5/O3/2O26');
+      final candidate = result.byField[LabelField.expiryDate];
+      expect(candidate?.value, '2026-03-05');
+      expect(candidate?.confidence, closeTo(0.92 * 0.95, 0.001));
+      expect(candidate?.derivedFrom, contains('ocr-normalized'));
+    });
+
+    test('MFG-prefixed date with OCR-confused digits', () {
+      final result = LabelFieldExtractor.extract('MFG: l0/0l/2026');
+      final candidate = result.byField[LabelField.mfgDate];
+      expect(candidate?.value, '2026-01-10');
+      expect(candidate?.confidence, closeTo(0.9 * 0.95, 0.001));
+    });
+
+    test('clean digits never pay the OCR-normalization penalty', () {
+      final result = LabelFieldExtractor.extract('EXP 15/03/2026');
+      final candidate = result.byField[LabelField.expiryDate];
+      expect(candidate?.confidence, 0.92);
+      expect(candidate?.derivedFrom, isNull);
+    });
+
+    test('month-name dates are never touched by digit normalization', () {
+      // "SEP" contains no digits to confuse; confirms the month-name path
+      // (which never calls normalizeOcrDigits) is unaffected by this phase.
+      final result = LabelFieldExtractor.extract('EXP 15 SEP 2026');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-09-15');
+    });
+  });
+
+  group('exclusion guards', () {
+    test('MRP/tax line with a bare date yields no candidate at all', () {
+      final result = LabelFieldExtractor.extract(
+        'MRP RS.450 INCL TAXES 12/01/2025',
+      );
+      expect(result.byField[LabelField.expiryDate], isNull);
+      expect(result.byField[LabelField.mfgDate], isNull);
+    });
+
+    test('customer-care phone-number line with a bare date is excluded', () {
+      final result = LabelFieldExtractor.extract(
+        'Customer Care 9876543210 12/01/2025',
+      );
+      expect(result.byField[LabelField.expiryDate], isNull);
+    });
+
+    test('bare 10-digit Indian mobile number line is excluded even without wording', () {
+      final result = LabelFieldExtractor.extract('Call us 9876543210 12/01/2025');
+      expect(result.byField[LabelField.expiryDate], isNull);
+    });
+
+    test('FSSAI license line with a bare date is excluded', () {
+      final result = LabelFieldExtractor.extract(
+        'FSSAI LIC NO 12345678901234 12/01/2025',
+      );
+      expect(result.byField[LabelField.expiryDate], isNull);
+    });
+
+    test('PIN-code line with a bare date is excluded', () {
+      final result = LabelFieldExtractor.extract(
+        'Address Mumbai PIN 400001 12/01/2025',
+      );
+      expect(result.byField[LabelField.expiryDate], isNull);
+    });
+
+    test('a genuine EXP line still resolves when an excluded MRP line is elsewhere in the same transcript', () {
+      final result = LabelFieldExtractor.extract('''
+        MRP RS.450 INCL TAXES 12/01/2025
+        EXP 15/03/2026
+      ''');
+      expect(result.byField[LabelField.expiryDate]?.value, '2026-03-15');
+      expect(result.byField[LabelField.mfgDate], isNull);
+    });
+  });
+
   group('combined real-world label transcript', () {
     test('extracts every field from one realistic noisy transcript', () {
       const transcript = '''
