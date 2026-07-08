@@ -3892,6 +3892,18 @@ abstract class AppLocalizations {
   /// **'Set up your allergen profile to get instant warnings when a scanned product contains something you avoid.'**
   String get scanResultAllergenPrompt;
 
+  /// Real declared allergens for the scanned product, comma-joined by the caller.
+  ///
+  /// In en, this message translates to:
+  /// **'Contains: {allergens}'**
+  String scanResultAllergensDeclared(String allergens);
+
+  /// No description provided for @scanResultNoAllergensDeclared.
+  ///
+  /// In en, this message translates to:
+  /// **'No allergens declared on this product\'s label.'**
+  String get scanResultNoAllergensDeclared;
+
   /// No description provided for @taskEvidenceRequiredSnack.
   ///
   /// In en, this message translates to:

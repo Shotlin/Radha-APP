@@ -46,4 +46,9 @@ ProductLookupResult _$ProductLookupResultFromJson(Map<String, dynamic> json) =>
           ? null
           : ProductLookupItem.fromJson(json['product'] as Map<String, dynamic>),
       source: json['source'] as String?,
+      health: json['health'] == null
+          ? null
+          : HealthAssessmentDto.fromJson(
+              json['health'] as Map<String, dynamic>,
+            ),
     );

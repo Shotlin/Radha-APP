@@ -2189,6 +2189,15 @@ class AppLocalizationsTe extends AppLocalizations {
       'మీరు నివారించే ఏదైనా స్కాన్ చేసిన ఉత్పత్తిలో ఉంటే తక్షణ హెచ్చరికలు పొందడానికి మీ అలర్జెన్ ప్రొఫైల్‌ను సెటప్ చేయండి.';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack =>
       'ఈ పనిని పూర్తి చేయడానికి సాక్ష్యం అవసరం';
 

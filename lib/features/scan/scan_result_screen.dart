@@ -35,15 +35,16 @@ import '../../l10n/generated/app_localizations.dart';
 /// not-found error state below is unchanged. Auto-disposed so cache
 /// doesn't grow unbounded across many scan results.
 ///
-/// Returns the full [ProductLookupItem] (not a narrowed copy) — the health
-/// section needs its `nutrition` and `description` (ingredients) fields,
+/// Returns the full [ProductLookupResult] — the health section needs the
+/// embedded [ProductLookupResult.health] (added server-side so the lookup
+/// carries health in the same round trip instead of a second request), and
+/// the product body needs `nutrition`/`description` (ingredients) fields,
 /// which a prior narrower `ProductResponse` mapping silently dropped.
 final _productByEanProvider = FutureProvider.autoDispose
-    .family<ProductLookupItem, String>((ref, ean) async {
+    .family<ProductLookupResult, String>((ref, ean) async {
       final client = ref.read(apiClientProvider);
       final result = await client.getProductLookup(ean);
-      final item = result.product;
-      if (!result.found || item == null) {
+      if (!result.found || result.product == null) {
         throw DioException(
           requestOptions: RequestOptions(path: '/api/v1/products/lookup/$ean'),
           response: Response(
@@ -53,21 +54,7 @@ final _productByEanProvider = FutureProvider.autoDispose
           type: DioExceptionType.badResponse,
         );
       }
-      return item;
-    });
-
-/// Health assessment for a resolved product (BE-12). Kept separate from the
-/// product lookup so a slow/failed health compute never blocks the product
-/// header/nutrition from rendering — the health section degrades to its own
-/// "assessment pending" state independently.
-final _healthByProductIdProvider = FutureProvider.autoDispose
-    .family<HealthAssessmentDto?, String>((ref, productId) async {
-      final client = ref.read(apiClientProvider);
-      try {
-        return await client.getProductHealth(productId);
-      } on DioException {
-        return null;
-      }
+      return result;
     });
 
 /// Composite key for the approved-EAN check — an EAN scoped to a store.
@@ -143,7 +130,11 @@ class ScanResultScreen extends ConsumerWidget {
       body: productAsync.when(
         loading: () => const _SkeletonBody(),
         error: (error, _) => _ErrorBody(ean: ean, error: error),
-        data: (product) => _ProductBody(product: product, ean: ean),
+        data: (result) => _ProductBody(
+          product: result.product!,
+          health: result.health,
+          ean: ean,
+        ),
       ),
     );
   }
@@ -158,9 +149,10 @@ class ScanResultScreen extends ConsumerWidget {
 /// blocks interaction and auto-dismisses; in reduced-motion it is suppressed
 /// (the approval pill + text already convey the state).
 class _ProductBody extends ConsumerStatefulWidget {
-  const _ProductBody({required this.product, required this.ean});
+  const _ProductBody({required this.product, required this.health, required this.ean});
 
   final ProductLookupItem product;
+  final HealthAssessmentDto? health;
   final String ean;
 
   @override
@@ -208,15 +200,21 @@ class _ProductBodyState extends ConsumerState<_ProductBody> {
                   const SizedBox(height: RadhaSpacing.space16),
                   _ApprovedEanPill(ean: widget.ean),
                   const SizedBox(height: RadhaSpacing.space24),
-                  _HealthSection(product: widget.product),
+                  _HealthSection(product: widget.product, health: widget.health),
                   const SizedBox(height: RadhaSpacing.space16),
                   _ExplainIngredientsButton(productId: widget.product.id),
                   const SizedBox(height: RadhaSpacing.space16),
-                  const _AllergenNote(),
+                  _AllergenNote(
+                    allergens: widget.product.nutrition?.containsAllergens ?? const [],
+                  ),
                 ],
               ),
             ),
-            _ActionBar(ean: widget.ean),
+            _ActionBar(
+              ean: widget.ean,
+              productId: widget.product.id,
+              productName: widget.product.name,
+            ),
           ],
         ),
         if (_showBurst)
@@ -511,18 +509,21 @@ class _PillFrame extends StatelessWidget {
 
 // ─── Health section ──────────────────────────────────────────────────────────
 
-class _HealthSection extends ConsumerWidget {
-  const _HealthSection({required this.product});
+class _HealthSection extends StatelessWidget {
+  const _HealthSection({required this.product, required this.health});
 
   final ProductLookupItem product;
+  final HealthAssessmentDto? health;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final healthAsync = ref.watch(_healthByProductIdProvider(product.id));
-    final health = healthAsync.asData?.value;
     final nutrition = product.nutrition;
+    // Rebind the field to a local so Dart can promote `HealthAssessmentDto?`
+    // to non-null within the `health != null` branches below — instance
+    // fields aren't promotable, only locals/params.
+    final health = this.health;
 
     return Container(
       padding: const EdgeInsets.all(RadhaSpacing.space16),
@@ -1075,29 +1076,44 @@ class _ExplainIngredientsButton extends StatelessWidget {
 // ─── Allergen note ───────────────────────────────────────────────────────────
 
 class _AllergenNote extends StatelessWidget {
-  const _AllergenNote();
+  const _AllergenNote({required this.allergens});
+
+  /// Real declared allergens from `ProductNutrition.containsAllergens` —
+  /// empty (not null) when the product has nutrition data but declares
+  /// none, so callers never have to distinguish "no data" from "no
+  /// allergens" here; that distinction is handled upstream by whichever
+  /// screen decides whether to show this widget at all.
+  final List<String> allergens;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    final hasAllergens = allergens.isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(RadhaSpacing.space16),
       decoration: BoxDecoration(
-        color: RadhaColors.primaryTint.withValues(alpha: 0.45),
+        color: hasAllergens
+            ? RadhaColors.warning.withValues(alpha: 0.12)
+            : RadhaColors.primaryTint.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.info_outline_rounded,
+          Icon(
+            hasAllergens
+                ? Icons.warning_amber_rounded
+                : Icons.info_outline_rounded,
             size: 20,
             color: RadhaColors.warning,
           ),
           const SizedBox(width: RadhaSpacing.space12),
           Expanded(
             child: Text(
-              AppLocalizations.of(context).scanResultAllergenPrompt,
+              hasAllergens
+                  ? l10n.scanResultAllergensDeclared(allergens.join(', '))
+                  : l10n.scanResultNoAllergensDeclared,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: RadhaColors.ink,
                 height: 1.4,
@@ -1113,9 +1129,15 @@ class _AllergenNote extends StatelessWidget {
 // ─── Bottom action bar ───────────────────────────────────────────────────────
 
 class _ActionBar extends StatelessWidget {
-  const _ActionBar({required this.ean});
+  const _ActionBar({
+    required this.ean,
+    required this.productId,
+    required this.productName,
+  });
 
   final String ean;
+  final String productId;
+  final String productName;
 
   @override
   Widget build(BuildContext context) {
@@ -1140,7 +1162,14 @@ class _ActionBar extends StatelessWidget {
               expand: true,
               onPressed: () {
                 HapticFeedback.lightImpact();
-                context.push(AppRoute.expiryNew);
+                context.push(
+                  AppRoute.expiryNew,
+                  extra: {
+                    'ean': ean,
+                    'productId': productId,
+                    'productName': productName,
+                  },
+                );
               },
             ),
           ),

@@ -359,7 +359,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoute.expiryNew,
         name: 'expiryNew',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const ExpiryCreateScreen(),
+        builder: (context, state) {
+          final extra = state.extra as Map<String, String>?;
+          return ExpiryCreateScreen(
+            prefillEan: extra?['ean'],
+            prefillProductId: extra?['productId'],
+            prefillProductName: extra?['productName'],
+          );
+        },
       ),
       GoRoute(
         path: AppRoute.taskCreate,

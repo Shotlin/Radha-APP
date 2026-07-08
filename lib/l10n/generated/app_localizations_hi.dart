@@ -2177,6 +2177,15 @@ class AppLocalizationsHi extends AppLocalizations {
       'अपनी एलर्जन प्रोफ़ाइल सेट करें ताकि स्कैन किए गए उत्पाद में आपकी परहेज़ वाली कोई चीज़ होने पर तुरंत चेतावनी मिले।';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack =>
       'इस कार्य को पूरा करने के लिए साक्ष्य आवश्यक है';
 

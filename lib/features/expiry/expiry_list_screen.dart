@@ -106,10 +106,16 @@ final _expiryStatsProvider = FutureProvider.autoDispose
 final _expiryFirstPageProvider = FutureProvider.autoDispose
     .family<PaginatedExpiries, _ExpiryQueryArgs>((ref, args) async {
       final client = ref.watch(apiClientProvider);
+      // The backend has no cursor/offset pagination at all (confirmed:
+      // ListExpiryRecordsQuerySchema only accepts a flat `limit`, max
+      // 200) -- _cursor below will therefore always stay null and
+      // _loadMore() never actually fires. Requesting the backend's max
+      // up front, matching the stats query below, covers realistic
+      // usage instead of silently truncating at 20.
       return client.getExpiries(
         status: args.apiStatus,
         storeId: args.storeId,
-        limit: 20,
+        limit: 200,
       );
     });
 

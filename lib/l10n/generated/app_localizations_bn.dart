@@ -2175,6 +2175,15 @@ class AppLocalizationsBn extends AppLocalizations {
       'আপনি যা এড়িয়ে চলেন তা স্ক্যান করা পণ্যে থাকলে তাৎক্ষণিক সতর্কতা পেতে আপনার অ্যালার্জেন প্রোফাইল সেট করুন।';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack =>
       'এই কাজটি সম্পূর্ণ করতে প্রমাণ প্রয়োজন';
 

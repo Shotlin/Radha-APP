@@ -2173,6 +2173,15 @@ class AppLocalizationsMr extends AppLocalizations {
       'तुम्ही टाळता ती एखादी गोष्ट स्कॅन केलेल्या उत्पादनात असल्यास त्वरित इशारा मिळण्यासाठी तुमची अ‍ॅलर्जन प्रोफाइल सेट करा.';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack =>
       'हे कार्य पूर्ण करण्यासाठी पुरावा आवश्यक आहे';
 

@@ -2169,6 +2169,15 @@ class AppLocalizationsEn extends AppLocalizations {
       'Set up your allergen profile to get instant warnings when a scanned product contains something you avoid.';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack =>
       'Evidence is required to complete this task';
 

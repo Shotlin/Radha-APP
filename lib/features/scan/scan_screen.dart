@@ -36,7 +36,8 @@ class ScanScreen extends ConsumerStatefulWidget {
   ConsumerState<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ScanScreenState extends ConsumerState<ScanScreen> {
+class _ScanScreenState extends ConsumerState<ScanScreen>
+    with WidgetsBindingObserver {
   MobileScannerController? _controller;
 
   /// The user's *desired* torch setting. The actual hardware state lives in
@@ -65,6 +66,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     if (!kIsWeb) {
       _controller = MobileScannerController(
         // `noDuplicates` debounces repeated reads of the same code — better for
@@ -90,10 +92,36 @@ class _ScanScreenState extends ConsumerState<ScanScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _helpTimer?.cancel();
     _controller?.dispose();
     _webEanController.dispose();
     super.dispose();
+  }
+
+  // `MobileScanner`'s own internal lifecycle handling only kicks in when it
+  // owns the controller itself — since we pass an externally-created
+  // `_controller`, that internal observer is a no-op (see its
+  // `if (widget.controller != null) return;` guard), so nothing stops the
+  // camera session on backgrounding or restarts it on foregrounding. That
+  // gap is exactly why the scanner would sometimes not scan again until the
+  // screen was reopened. We own the lifecycle ourselves instead.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    switch (state) {
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        controller.stop();
+      case AppLifecycleState.resumed:
+        controller.start().then((_) {
+          if (mounted) _applyTorch();
+        });
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   void _startHelpTimer() {

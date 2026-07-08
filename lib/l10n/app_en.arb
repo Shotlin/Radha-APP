@@ -1206,6 +1206,16 @@
   "scanResultNutritionPending": "Nutrition flags appear here once this product is matched in the catalog. Scan more items to enrich the database.",
   "scanResultExplainIngredients": "Explain ingredients",
   "scanResultAllergenPrompt": "Set up your allergen profile to get instant warnings when a scanned product contains something you avoid.",
+  "scanResultAllergensDeclared": "Contains: {allergens}",
+  "@scanResultAllergensDeclared": {
+    "description": "Real declared allergens for the scanned product, comma-joined by the caller.",
+    "placeholders": {
+      "allergens": {
+        "type": "String"
+      }
+    }
+  },
+  "scanResultNoAllergensDeclared": "No allergens declared on this product's label.",
   "taskEvidenceRequiredSnack": "Evidence is required to complete this task",
   "taskMovedTo": "Task moved to {status}",
   "@taskMovedTo": {

@@ -2200,6 +2200,15 @@ class AppLocalizationsTa extends AppLocalizations {
       'நீங்கள் தவிர்க்கும் ஏதேனும் ஒன்று ஸ்கேன் செய்யப்பட்ட பொருளில் இருந்தால் உடனடி எச்சரிக்கை பெற உங்கள் ஒவ்வாமை சுயவிவரத்தை அமைக்கவும்.';
 
   @override
+  String scanResultAllergensDeclared(String allergens) {
+    return 'Contains: $allergens';
+  }
+
+  @override
+  String get scanResultNoAllergensDeclared =>
+      'No allergens declared on this product\'s label.';
+
+  @override
   String get taskEvidenceRequiredSnack => 'இந்தப் பணியை முடிக்க ஆதாரம் தேவை';
 
   @override

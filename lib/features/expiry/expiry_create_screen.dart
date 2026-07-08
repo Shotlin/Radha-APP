@@ -19,7 +19,19 @@ import 'ocr_date_helper.dart';
 /// Screen for creating a new expiry record. Supports manual date entry
 /// and an OCR-assisted camera path on mobile platforms.
 class ExpiryCreateScreen extends ConsumerStatefulWidget {
-  const ExpiryCreateScreen({super.key});
+  const ExpiryCreateScreen({
+    super.key,
+    this.prefillEan,
+    this.prefillProductId,
+    this.prefillProductName,
+  });
+
+  /// Populated when navigated here from a scan result via
+  /// `AppRoute.expiryNew`'s `extra` map — prefills the form instead of
+  /// leaving the user to retype the product they just scanned.
+  final String? prefillEan;
+  final String? prefillProductId;
+  final String? prefillProductName;
 
   @override
   ConsumerState<ExpiryCreateScreen> createState() => _ExpiryCreateScreenState();
@@ -41,6 +53,14 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   bool get _canUseCamera {
     if (kIsWeb) return false;
     return Platform.isAndroid || Platform.isIOS;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.prefillProductId != null) {
+      _productIdController.text = widget.prefillProductId!;
+    }
   }
 
   @override
@@ -217,6 +237,15 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
                 // Product ID
                 Text(l10n.exProductIdLabel, style: theme.textTheme.labelLarge),
                 const SizedBox(height: RadhaSpacing.space8),
+                if (widget.prefillProductName != null) ...[
+                  Text(
+                    widget.prefillProductName!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                  const SizedBox(height: RadhaSpacing.space8),
+                ],
                 TextFormField(
                   controller: _productIdController,
                   enabled: !_loading,

@@ -1,15 +1,17 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'health_assessment_dto.dart';
+
 part 'product_lookup_dto.g.dart';
 
 /// Real nutrition for the rich product detail, from
 /// `GET /api/v1/products/lookup/{ean}?includeNutrition=true`
 /// (`ProductLookupService.lookupByEan`).
 ///
-/// The lookup returns catalog fields + a nested `nutrition` row; it does NOT
-/// carry the health score (that comes from the catalog item joined in
-/// `/catalog/products`). All numeric nutrition values are Postgres decimals
-/// serialised as strings, so we parse tolerantly via [_toDouble].
+/// The lookup response embeds the health assessment directly (added in the
+/// backend's Phase 3 correctness pass) — see [ProductLookupResult.health].
+/// All numeric nutrition values are Postgres decimals serialised as
+/// strings, so we parse tolerantly via [_toDouble].
 
 double? _toDouble(dynamic v) {
   if (v == null) return null;
@@ -131,11 +133,17 @@ class ProductLookupItem {
 /// catalog nor OFF could resolve the barcode.
 @JsonSerializable(createToJson: false)
 class ProductLookupResult {
-  const ProductLookupResult({required this.found, this.product, this.source});
+  const ProductLookupResult({
+    required this.found,
+    this.product,
+    this.source,
+    this.health,
+  });
 
   final bool found;
   final ProductLookupItem? product;
   final String? source;
+  final HealthAssessmentDto? health;
 
   factory ProductLookupResult.fromJson(Map<String, dynamic> json) =>
       _$ProductLookupResultFromJson(json);
