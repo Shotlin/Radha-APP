@@ -712,34 +712,94 @@ class LabelFieldExtractor {
 
   // ─── Nutrition ──────────────────────────────────────────────────────────
 
+  // Unit alternatives are ordered longest-first within each alternation
+  // (MILLIGRAMS before MG before G, etc.) so the regex engine can't lock
+  // onto a short prefix of a longer spelled-out word.
+  static const String _massUnit =
+      r'MILLIGRAMS?|MILLILIT(?:RE|ER)S?|MG|ML|GRAMS?|G';
+  static const String _energyUnit = r'KILOCALORIES?|CALORIES?|KCAL|K?CAL';
+
   static final Map<String, RegExp> _nutrientPatterns = {
     'energy': RegExp(
-      r'(?:ENERGY|CALORIES)[:\s]+(\d+(?:\.\d+)?)\s*(K?CAL)?',
+      r'(?:ENERGY|CALORIES)[:\s]+(\d+(?:\.\d+)?)\s*(' '$_energyUnit' r')?',
       caseSensitive: false,
     ),
-    'protein': RegExp(r'PROTEINS?[:\s]+(\d+(?:\.\d+)?)\s*(G|MG)?', caseSensitive: false),
+    'protein': RegExp(
+      r'PROTEINS?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      caseSensitive: false,
+    ),
     'fat': RegExp(
-      r'(?:TOTAL\s*FAT|FAT)[:\s]+(\d+(?:\.\d+)?)\s*(G|MG)?',
+      r'(?:TOTAL\s*FAT|FAT)[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'carbohydrate': RegExp(
-      r'CARBOHYDRATES?[:\s]+(\d+(?:\.\d+)?)\s*(G|MG)?',
+      r'CARBOHYDRATES?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
       caseSensitive: false,
     ),
-    'sugar': RegExp(r'SUGARS?[:\s]+(\d+(?:\.\d+)?)\s*(G|MG)?', caseSensitive: false),
-    'sodium': RegExp(r'SODIUM[:\s]+(\d+(?:\.\d+)?)\s*(MG|G)?', caseSensitive: false),
-    'potassium': RegExp(r'POTASSIUM[:\s]+(\d+(?:\.\d+)?)\s*(MG|G)?', caseSensitive: false),
+    'sugar': RegExp(
+      r'SUGARS?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      caseSensitive: false,
+    ),
+    'sodium': RegExp(
+      r'SODIUM[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      caseSensitive: false,
+    ),
+    'potassium': RegExp(
+      r'POTASSIUM[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      caseSensitive: false,
+    ),
   };
 
+  /// Normalizes any recognized spelling ("gram", "Grams", "MILLILITRE",
+  /// "Kcal", "calories", …) down to the short canonical unit everything
+  /// downstream (bounds checking, display, payload building) expects.
+  static String _normalizeUnit(String? raw, String key) {
+    if (raw == null || raw.isEmpty) return key == 'energy' ? 'kcal' : 'g';
+    final u = raw.toUpperCase();
+    if (u.startsWith('KCAL') || u.startsWith('KILOCAL') || u.contains('CAL')) {
+      return 'kcal';
+    }
+    if (u.startsWith('MG') || u.startsWith('MILLIGRAM')) return 'mg';
+    if (u.startsWith('ML') || u.startsWith('MILLILIT')) return 'ml';
+    return 'g';
+  }
+
+  /// A real nutrition PANEL is a multi-column table (nutrient name | per
+  /// 100g/ml | %RDA); OCR frequently doesn't preserve strict row order
+  /// when it flattens that table to text (columns can come out grouped
+  /// together rather than row-by-row). Matching a nutrient's regex
+  /// against the WHOLE flattened transcript let a pattern's "next number
+  /// after the keyword" skip across a row boundary and grab a completely
+  /// different nutrient's value — confirmed live: "TOTAL FAT" matched
+  /// Sodium's "5mg" because Fat's own "0g" wasn't the next digit run in
+  /// the flattened order. Restricting each match to a single OCR LINE
+  /// (still `\n`-joined per ML Kit's own line segmentation) means a
+  /// nutrient can only match its OWN row's value, never a neighbour's.
+  static bool _isPlausibleNutrientValue(String key, double value, String unit) {
+    if (key == 'energy') return value >= 0 && value <= 900;
+    // Every other tracked nutrient is reported per 100g/100ml — its own
+    // gram-equivalent value can never exceed that 100-unit basis. This
+    // catches OCR digit-corruption (e.g. a garbled "115g" or "1159g")
+    // even when it lands on the nutrient's own correct line.
+    final asGrams = unit == 'mg' ? value / 1000 : value;
+    return asGrams >= 0 && asGrams <= 100;
+  }
+
   static FieldCandidate? _extractNutrition(String text) {
+    final lines = text.split('\n');
     final found = <String, String>{};
     for (final entry in _nutrientPatterns.entries) {
-      final m = entry.value.firstMatch(text);
-      if (m == null) continue;
-      final value = m.group(1)!;
-      final unit = (m.groupCount >= 2 ? m.group(2) : null)?.toLowerCase() ??
-          (entry.key == 'energy' ? 'kcal' : 'g');
-      found[entry.key] = '$value$unit';
+      for (final line in lines) {
+        final m = entry.value.firstMatch(line);
+        if (m == null) continue;
+        final rawValue = m.group(1)!;
+        final value = double.tryParse(rawValue);
+        if (value == null) continue;
+        final unit = _normalizeUnit(m.groupCount >= 2 ? m.group(2) : null, entry.key);
+        if (!_isPlausibleNutrientValue(entry.key, value, unit)) continue;
+        found[entry.key] = '$rawValue$unit';
+        break;
+      }
     }
     if (found.isEmpty) return null;
     // Encode as "key=value;key=value" so it fits the single-string

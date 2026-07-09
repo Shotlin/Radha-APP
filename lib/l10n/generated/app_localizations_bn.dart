@@ -1018,6 +1018,17 @@ class AppLocalizationsBn extends AppLocalizations {
   String get scanAlignHint => 'ফ্রেমের মধ্যে বারকোড সারিবদ্ধ করুন';
 
   @override
+  String scanCandidateVerifying(String code, int streak, int required) {
+    return 'Verifying $code — $streak/$required reads agree';
+  }
+
+  @override
+  String get scanCandidateVerified => 'Verified — ready to proceed';
+
+  @override
+  String get scanProceed => 'Proceed';
+
+  @override
   String get scanBatchHint =>
       'ব্যাচ মোড — স্ক্যান করতে থাকুন, আইটেম স্বয়ংক্রিয়ভাবে যোগ হবে';
 

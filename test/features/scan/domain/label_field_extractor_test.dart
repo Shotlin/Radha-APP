@@ -192,6 +192,89 @@ void main() {
       final result = LabelFieldExtractor.extract('EXP 15/03/2026');
       expect(result.byField[LabelField.nutrition], isNull);
     });
+
+    test(
+      "a nutrient with no value on its own line does not fall through to "
+      'a NEIGHBOURING row\'s value (real device misread, 2026-07-09)',
+      () {
+        // Live-device capture (a Campa soft-drink bottle): "TOTAL FAT"
+        // OCR'd with no trailing digits (its printed "0g" wasn't read),
+        // immediately followed by "SODIUM 5MG" on the next line. Matching
+        // against the flattened whole-transcript let FAT's pattern skip
+        // ahead and grab Sodium's "5" as if it were fat's own value.
+        // Restricting each nutrient's regex to its own single line makes
+        // that impossible: FAT simply isn't extracted when its own line
+        // has no number, rather than stealing sodium's.
+        final result = LabelFieldExtractor.extract(
+          'ENERGY 46 KCAL\nPROTEIN 0G\nCARBOHYDRATE 11.5G\nTOTAL FAT\nSODIUM 5MG',
+        );
+        final decoded = LabelFieldExtractor.decodeNutrition(
+          result.byField[LabelField.nutrition]!.value,
+        );
+        expect(decoded.containsKey('fat'), isFalse);
+        expect(decoded['sodium'], '5mg');
+      },
+    );
+
+    test(
+      'an implausible per-100 value is rejected, not passed through as '
+      '"verified" (real device misread: protein 115g, carb 1159g)',
+      () {
+        // Live-device capture: OCR digit-corruption produced "PROTEIN
+        // 115G" (real label said 0g) and "CARBOHYDRATE 1159G" (real
+        // label said 11.5g) — both physically impossible for a per-100ml
+        // basis, yet both made it through the old unbounded regex and
+        // were shown to the user with a green "Verified" chip.
+        final result = LabelFieldExtractor.extract(
+          'PROTEIN 115G\nCARBOHYDRATE 1159G\nSUGAR 11.5G',
+        );
+        final decoded = LabelFieldExtractor.decodeNutrition(
+          result.byField[LabelField.nutrition]!.value,
+        );
+        expect(decoded.containsKey('protein'), isFalse);
+        expect(decoded.containsKey('carbohydrate'), isFalse);
+        expect(decoded['sugar'], '11.5g');
+      },
+    );
+
+    test('a plausible value right at the 100g boundary is accepted', () {
+      final result = LabelFieldExtractor.extract('CARBOHYDRATE 100G');
+      final decoded = LabelFieldExtractor.decodeNutrition(
+        result.byField[LabelField.nutrition]!.value,
+      );
+      expect(decoded['carbohydrate'], '100g');
+    });
+
+    test('sodium in mg is bounds-checked in gram-equivalent, not raw mg', () {
+      // 2000mg sodium (=2g) is a real, plausible value for a salty
+      // snack — must not be rejected just because "2000" looks large in
+      // raw mg terms.
+      final result = LabelFieldExtractor.extract('SODIUM 2000MG');
+      final decoded = LabelFieldExtractor.decodeNutrition(
+        result.byField[LabelField.nutrition]!.value,
+      );
+      expect(decoded['sodium'], '2000mg');
+    });
+
+    test('spelled-out units (gram/millilitre/kilocalories) normalize to short form', () {
+      final result = LabelFieldExtractor.extract(
+        'ENERGY 46 KILOCALORIES\nCARBOHYDRATE 11.5 GRAMS\nSODIUM 5 MILLIGRAMS',
+      );
+      final decoded = LabelFieldExtractor.decodeNutrition(
+        result.byField[LabelField.nutrition]!.value,
+      );
+      expect(decoded['energy'], '46kcal');
+      expect(decoded['carbohydrate'], '11.5g');
+      expect(decoded['sodium'], '5mg');
+    });
+
+    test('a bare unit-less value still defaults to the field\'s usual unit', () {
+      final result = LabelFieldExtractor.extract('PROTEIN 8');
+      final decoded = LabelFieldExtractor.decodeNutrition(
+        result.byField[LabelField.nutrition]!.value,
+      );
+      expect(decoded['protein'], '8g');
+    });
   });
 
   group('unlabeled two-date inference (Indian pack convention)', () {

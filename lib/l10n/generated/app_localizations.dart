@@ -1888,6 +1888,24 @@ abstract class AppLocalizations {
   /// **'Align the barcode within the frame'**
   String get scanAlignHint;
 
+  /// Shown under the scan frame while a detected barcode is still being cross-checked across multiple frames, before Proceed unlocks.
+  ///
+  /// In en, this message translates to:
+  /// **'Verifying {code} — {streak}/{required} reads agree'**
+  String scanCandidateVerifying(String code, int streak, int required);
+
+  /// Shown under the scan frame once a barcode has agreed across enough consecutive reads to trust.
+  ///
+  /// In en, this message translates to:
+  /// **'Verified — ready to proceed'**
+  String get scanCandidateVerified;
+
+  /// Button that confirms the verified scanned barcode and opens its product result.
+  ///
+  /// In en, this message translates to:
+  /// **'Proceed'**
+  String get scanProceed;
+
   /// Guidance pill shown while batch (continuous) scan mode is on.
   ///
   /// In en, this message translates to:

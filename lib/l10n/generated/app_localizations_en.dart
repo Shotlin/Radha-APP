@@ -1014,6 +1014,17 @@ class AppLocalizationsEn extends AppLocalizations {
   String get scanAlignHint => 'Align the barcode within the frame';
 
   @override
+  String scanCandidateVerifying(String code, int streak, int required) {
+    return 'Verifying $code — $streak/$required reads agree';
+  }
+
+  @override
+  String get scanCandidateVerified => 'Verified — ready to proceed';
+
+  @override
+  String get scanProceed => 'Proceed';
+
+  @override
   String get scanBatchHint =>
       'Batch mode — keep scanning, items add automatically';
 

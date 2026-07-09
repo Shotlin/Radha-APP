@@ -1019,6 +1019,17 @@ class AppLocalizationsHi extends AppLocalizations {
   String get scanAlignHint => 'बारकोड को फ्रेम के भीतर रखें';
 
   @override
+  String scanCandidateVerifying(String code, int streak, int required) {
+    return 'Verifying $code — $streak/$required reads agree';
+  }
+
+  @override
+  String get scanCandidateVerified => 'Verified — ready to proceed';
+
+  @override
+  String get scanProceed => 'Proceed';
+
+  @override
   String get scanBatchHint =>
       'बैच मोड — स्कैन करते रहें, आइटम स्वतः जुड़ते जाएँगे';
 

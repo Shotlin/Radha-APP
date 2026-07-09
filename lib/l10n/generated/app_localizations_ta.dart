@@ -1023,6 +1023,17 @@ class AppLocalizationsTa extends AppLocalizations {
   String get scanAlignHint => 'பார்கோடை சட்டகத்திற்குள் சீரமைக்கவும்';
 
   @override
+  String scanCandidateVerifying(String code, int streak, int required) {
+    return 'Verifying $code — $streak/$required reads agree';
+  }
+
+  @override
+  String get scanCandidateVerified => 'Verified — ready to proceed';
+
+  @override
+  String get scanProceed => 'Proceed';
+
+  @override
   String get scanBatchHint =>
       'தொகுதி பயன்முறை — ஸ்கேன் செய்துகொண்டே இருங்கள், உருப்படிகள் தானாகவே சேர்க்கப்படும்';
 

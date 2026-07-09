@@ -109,6 +109,7 @@ class FieldCorrection {
     required this.oldValue,
     required this.newValue,
     required this.reason,
+    this.nutrientKey,
   });
 
   final LabelField field;
@@ -117,6 +118,12 @@ class FieldCorrection {
 
   /// e.g. `'outvoted'`, `'cross-field: R1 expiry must be after MFG'`.
   final String reason;
+
+  /// Set only when [field] is [LabelField.nutrition] — the specific
+  /// nutrient key (e.g. `'energy'`), since a label can carry several
+  /// independent nutrient readings and `field` alone can't distinguish
+  /// them. Null for every other field.
+  final String? nutrientKey;
 }
 
 /// Final payload handed back to the caller (expiry form / label-analysis

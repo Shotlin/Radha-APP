@@ -19,6 +19,7 @@ import 'dart:async';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -56,6 +57,16 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
 
   final _aggregator = FrameConsensusAggregator();
   String _lastTranscript = '';
+
+  /// Field-card key -> most recent correction, cleared 2s after it lands.
+  /// Key scheme mirrors the aggregator's internal window keys: LabelField
+  /// name for scalar fields, `'nutrition.$nutrientKey'` for nutrients —
+  /// see FrameConsensusAggregator._push/_rankedFor.
+  final Map<String, FieldCorrection> _recentCorrections = {};
+
+  String _correctionKey(FieldCorrection c) => c.nutrientKey != null
+      ? 'nutrition.${c.nutrientKey}'
+      : c.field.name;
 
   bool _manualEditMode = false;
   DateTime? _manualExpiry;
@@ -96,9 +107,22 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
       );
       final controller = CameraController(
         back,
+        // `medium` + yuv420 failed outright on a real vivo I2217 (Android
+        // 15): the platform's ImageAnalysis pipeline threw "Getting Image
+        // failed / IllegalArgumentException" on every frame, before any
+        // frame ever reached Dart — this Qualcomm-ISP camera stack
+        // (qdgralloc in logcat) has a known plane-stride incompatibility
+        // with CameraX's YUV_420_888 acquisition path on some devices.
+        // `nv21` (below) forces the plugin's legacy Camera2-compatible
+        // conversion path instead and fixed it outright — confirmed live
+        // that resolution wasn't actually the cause, so this stays at
+        // `medium` rather than `low`: this preset also governs the LIVE
+        // PREVIEW's resolution (the plugin doesn't expose a separate
+        // preview vs. analysis resolution), and `low` made the on-screen
+        // camera view visibly blurry for no remaining benefit.
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        imageFormatGroup: ImageFormatGroup.nv21,
       );
       _controller = controller;
       await controller.initialize();
@@ -140,11 +164,35 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
       final inputImage = cameraImageToInputImage(image, camera);
       if (inputImage == null) return;
       final recognized = await recognizer.processImage(inputImage);
+      // The await above is a genuine suspension point — the user can
+      // navigate away (disposing this State) while a frame is
+      // mid-recognition. SemanticsService.sendAnnouncement below needs a
+      // still-mounted BuildContext; bail out immediately if unmounted.
+      if (!mounted) return;
       final text = recognized.text;
       if (text.trim().isEmpty) return;
       final candidates = LabelFieldExtractor.extract(text);
       if (candidates.isEmpty) return;
       _aggregator.addFrame(candidates);
+      final corrections = _aggregator.takeCorrections();
+      for (final correction in corrections) {
+        final key = _correctionKey(correction);
+        _recentCorrections[key] = correction;
+        if (mounted) {
+          SemanticsService.sendAnnouncement(
+            View.of(context),
+            '${_fieldLabel(correction.field, correction.nutrientKey)} '
+            'corrected to ${correction.newValue}',
+            TextDirection.ltr,
+          );
+        }
+        Future.delayed(const Duration(seconds: 2), () {
+          if (!mounted) return;
+          if (identical(_recentCorrections[key], correction)) {
+            setState(() => _recentCorrections.remove(key));
+          }
+        });
+      }
       _lastTranscript = text;
       if (mounted) setState(() {});
     } catch (_) {
@@ -174,6 +222,7 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
       _aggregator.reset();
       _lastTranscript = '';
       _manualEditMode = false;
+      _recentCorrections.clear();
     });
   }
 
@@ -455,26 +504,41 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
         RadhaSpacing.space8,
       ),
       children: [
-        FieldCard(label: 'Expiry Date', consensus: expiry, formatAsDate: true),
+        FieldCard(
+          label: 'Expiry Date',
+          consensus: expiry,
+          formatAsDate: true,
+          correction: _recentCorrections[LabelField.expiryDate.name],
+        ),
         const SizedBox(height: RadhaSpacing.space8),
         FieldCard(
           label: 'Manufacturing Date',
           consensus: mfg,
           formatAsDate: true,
+          correction: _recentCorrections[LabelField.mfgDate.name],
         ),
         if (batch.hasAnyReading) ...[
           const SizedBox(height: RadhaSpacing.space8),
-          FieldCard(label: 'Batch / Lot Number', consensus: batch),
+          FieldCard(
+            label: 'Batch / Lot Number',
+            consensus: batch,
+            correction: _recentCorrections[LabelField.batchNumber.name],
+          ),
         ],
         if (sku.hasAnyReading) ...[
           const SizedBox(height: RadhaSpacing.space8),
-          FieldCard(label: 'SKU / Product ID', consensus: sku),
+          FieldCard(
+            label: 'SKU / Product ID',
+            consensus: sku,
+            correction: _recentCorrections[LabelField.skuOrProductId.name],
+          ),
         ],
         for (final entry in nutrition.entries) ...[
           const SizedBox(height: RadhaSpacing.space8),
           FieldCard(
             label: _nutrientLabel(entry.key),
             consensus: entry.value,
+            correction: _recentCorrections['nutrition.${entry.key}'],
           ),
         ],
       ],
@@ -487,6 +551,22 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
         return 'Calories / Energy';
       default:
         return key[0].toUpperCase() + key.substring(1);
+    }
+  }
+
+  static String _fieldLabel(LabelField field, String? nutrientKey) {
+    if (nutrientKey != null) return _nutrientLabel(nutrientKey);
+    switch (field) {
+      case LabelField.expiryDate:
+        return 'Expiry date';
+      case LabelField.mfgDate:
+        return 'Manufacturing date';
+      case LabelField.batchNumber:
+        return 'Batch / lot number';
+      case LabelField.skuOrProductId:
+        return 'SKU / product ID';
+      case LabelField.nutrition:
+        return 'Nutrition value';
     }
   }
 
@@ -603,24 +683,37 @@ class FieldCard extends StatelessWidget {
     required this.label,
     required this.consensus,
     this.formatAsDate = false,
+    this.correction,
   });
 
   final String label;
   final FieldConsensus consensus;
   final bool formatAsDate;
 
+  /// When non-null, this card just got outvoted/demoted to a new value —
+  /// render the amber "Corrected" state instead of the normal chip.
+  final FieldCorrection? correction;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (chipLabel, tone) = _statusFor(consensus);
+    final isCorrected = correction != null;
+    final (chipLabel, tone) = isCorrected
+        ? ('Corrected', RadhaStatusTone.warning)
+        : _statusFor(consensus);
     final displayValue = _displayValue();
 
     return Container(
       padding: const EdgeInsets.all(RadhaSpacing.space12),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainer,
+        color: isCorrected
+            ? RadhaColors.warning.withValues(alpha: 0.08)
+            : theme.colorScheme.surfaceContainer,
         borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
-        border: Border.all(color: theme.colorScheme.outline),
+        border: Border.all(
+          color: isCorrected ? RadhaColors.warning : theme.colorScheme.outline,
+          width: isCorrected ? 1.5 : 1,
+        ),
       ),
       child: Row(
         children: [
@@ -635,13 +728,48 @@ class FieldCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  displayValue,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 350),
+                  transitionBuilder: (child, animation) {
+                    final incoming =
+                        (child.key as ValueKey<String>).value == displayValue;
+                    final offset = Tween<Offset>(
+                      begin: Offset(0, incoming ? 0.4 : 0),
+                      end: Offset(0, incoming ? 0 : -0.4),
+                    ).animate(animation);
+                    final fade = FadeTransition(opacity: animation, child: child);
+                    return SlideTransition(
+                      position: offset,
+                      child: incoming
+                          ? fade
+                          : DefaultTextStyle.merge(
+                              style: const TextStyle(
+                                decoration: TextDecoration.lineThrough,
+                              ),
+                              child: fade,
+                            ),
+                    );
+                  },
+                  child: Text(
+                    displayValue,
+                    key: ValueKey(displayValue),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                if (consensus.derivedFrom != null)
+                if (isCorrected)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      'corrected: ${correction!.reason}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: RadhaColors.warning,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  )
+                else if (consensus.derivedFrom != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(

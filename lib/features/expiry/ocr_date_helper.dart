@@ -4,26 +4,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../scan/domain/label_field_models.dart';
 import '../scan/live_label_scanner_screen.dart';
 
-/// Result of OCR date extraction — may contain one or both dates, plus
-/// whatever else the live scanner confirmed on the same label.
+/// Result of OCR date extraction — carries the full live-scanner payload
+/// (dates, batch, SKU, nutrition) so no downstream consumer — the expiry
+/// form today, Feature B's flow later — has to re-scan for data the
+/// scanner already captured.
 ///
 /// `confidence` mirrors the scanner's combined (pattern × frame-agreement)
 /// score at the moment the user accepted — kept so the destination form
 /// could, if it wants to, still flag "accepted at N% confidence" even
-/// though the scanner screen is gone. Currently only expiry/mfg dates are
-/// wired into the expiry-record form; batch number is also carried through
-/// since the form already has a field for it.
+/// though the scanner screen is gone. The expiry-record form itself still
+/// only reads `mfgDate`/`expiryDate`/`batchNumber` — the extra fields exist
+/// so this boundary stops silently dropping data future callers need.
 class OcrDateResult {
   const OcrDateResult({
     this.mfgDate,
     this.expiryDate,
     this.batchNumber,
+    this.skuOrProductId,
+    this.nutrition = const {},
     this.fieldConfidence = const {},
   });
 
   final DateTime? mfgDate;
   final DateTime? expiryDate;
   final String? batchNumber;
+  final String? skuOrProductId;
+  final Map<String, String> nutrition;
   final Map<LabelField, double> fieldConfidence;
 }
 
@@ -51,13 +57,17 @@ class OcrDateHelper {
     if (result == null) return null;
     if (result.expiryDate == null &&
         result.mfgDate == null &&
-        result.batchNumber == null) {
+        result.batchNumber == null &&
+        result.skuOrProductId == null &&
+        result.nutrition.isEmpty) {
       return null;
     }
     return OcrDateResult(
       mfgDate: result.mfgDate,
       expiryDate: result.expiryDate,
       batchNumber: result.batchNumber,
+      skuOrProductId: result.skuOrProductId,
+      nutrition: result.nutrition,
       fieldConfidence: result.fieldConfidence,
     );
   }

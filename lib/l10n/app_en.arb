@@ -666,6 +666,19 @@
   "@scanTitle": { "description": "Camera scanner top-bar title." },
   "scanAlignHint": "Align the barcode within the frame",
   "@scanAlignHint": { "description": "Default guidance pill under the scan frame." },
+  "scanCandidateVerifying": "Verifying {code} — {streak}/{required} reads agree",
+  "@scanCandidateVerifying": {
+    "description": "Shown under the scan frame while a detected barcode is still being cross-checked across multiple frames, before Proceed unlocks.",
+    "placeholders": {
+      "code": { "type": "String", "example": "8901234567890" },
+      "streak": { "type": "int", "example": "2" },
+      "required": { "type": "int", "example": "3" }
+    }
+  },
+  "scanCandidateVerified": "Verified — ready to proceed",
+  "@scanCandidateVerified": { "description": "Shown under the scan frame once a barcode has agreed across enough consecutive reads to trust." },
+  "scanProceed": "Proceed",
+  "@scanProceed": { "description": "Button that confirms the verified scanned barcode and opens its product result." },
   "scanBatchHint": "Batch mode — keep scanning, items add automatically",
   "@scanBatchHint": { "description": "Guidance pill shown while batch (continuous) scan mode is on." },
   "scanBatchAdded": "Added {code} · {count} scanned",

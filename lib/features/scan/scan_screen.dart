@@ -38,6 +38,16 @@ class ScanScreen extends ConsumerStatefulWidget {
 
 class _ScanScreenState extends ConsumerState<ScanScreen>
     with WidgetsBindingObserver {
+  /// Consecutive identical checksum-valid reads required before a scan is
+  /// trusted enough to unlock Proceed. A barcode's own check digit only
+  /// catches ~90% of single-digit misreads — and misses some substitution
+  /// patterns entirely: a real production misread turned a genuine
+  /// EAN-13 (7622202225512) into a COMPLETELY different but still
+  /// checksum-valid EAN-13 (1608062225578) on a single bad frame. One
+  /// valid-checksum frame is not enough to trust; requiring several
+  /// independent frames to agree on the exact same digits is.
+  static const int _kRequiredAgreement = 3;
+
   MobileScannerController? _controller;
 
   /// The user's *desired* torch setting. The actual hardware state lives in
@@ -61,6 +71,14 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   bool _showHelp = false;
   Timer? _helpTimer;
 
+  // Multi-frame consensus for the single-scan path — see
+  // _kRequiredAgreement. Reset whenever a differently-valued code is read,
+  // so pointing at a different item re-verifies from scratch instead of
+  // sticking with a stale candidate.
+  String? _candidateCode;
+  int _candidateStreak = 0;
+  bool get _candidateConfirmed => _candidateStreak >= _kRequiredAgreement;
+
   final TextEditingController _webEanController = TextEditingController();
 
   @override
@@ -69,9 +87,13 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     WidgetsBinding.instance.addObserver(this);
     if (!kIsWeb) {
       _controller = MobileScannerController(
-        // `noDuplicates` debounces repeated reads of the same code — better for
-        // both single and batch modes.
-        detectionSpeed: DetectionSpeed.noDuplicates,
+        // `noDuplicates` would suppress every repeat read of the SAME code
+        // until a different one appears — which is exactly the signal the
+        // multi-frame consensus below needs to count agreement. `normal`
+        // re-fires on every still-in-view read, throttled by
+        // detectionTimeoutMs, so repeated identical reads keep arriving.
+        detectionSpeed: DetectionSpeed.normal,
+        detectionTimeoutMs: 200,
         facing: CameraFacing.back,
         // Higher analysis resolution keeps dense EAN-13 bars resolvable when
         // the phone is held close to small packs (the default feed is too
@@ -173,16 +195,44 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     }
 
     if (_processing) return;
+
+    // A checksum-valid single frame is treated only as a CANDIDATE, never
+    // an immediate result — see _kRequiredAgreement. A different code
+    // resets the streak (re-verify from scratch); the same code keeps
+    // climbing towards confirmation. Camera keeps running throughout —
+    // nothing navigates away until the user taps Proceed.
+    if (code != _candidateCode) {
+      setState(() {
+        _candidateCode = code;
+        _candidateStreak = 1;
+      });
+      return;
+    }
+
+    if (_candidateStreak >= _kRequiredAgreement) return;
+    setState(() => _candidateStreak++);
+    if (_candidateStreak == _kRequiredAgreement) {
+      HapticFeedback.mediumImpact();
+      _helpTimer?.cancel();
+    }
+  }
+
+  void _proceed() {
+    final code = _candidateCode;
+    if (code == null || !_candidateConfirmed || _processing) return;
     _processing = true;
     HapticFeedback.mediumImpact();
-    _helpTimer?.cancel();
     _controller?.stop();
 
     ref.read(_scanHistoryProvider.notifier).update((list) => [code, ...list]);
 
     context.push('/scan/result/$code').then((_) async {
       if (mounted) {
-        _processing = false;
+        setState(() {
+          _processing = false;
+          _candidateCode = null;
+          _candidateStreak = 0;
+        });
         await _controller?.start();
         // stop() force-reset the torch; restore the user's setting.
         if (mounted) await _applyTorch();
@@ -198,6 +248,8 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _batchCount = 0;
       _lastBatchCode = null;
       _showHelp = false;
+      _candidateCode = null;
+      _candidateStreak = 0;
     });
     if (_batchMode) {
       _helpTimer?.cancel();
@@ -401,19 +453,30 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             ),
           ),
 
-          // Dynamic helper below the frame: a low-light/no-detection rescue
-          // card after a few idle seconds, a batch-mode hint, or the default
-          // alignment nudge.
+          // Dynamic helper below the frame: while a barcode candidate is
+          // being cross-checked (or has been confirmed), its card takes
+          // over this slot — the camera keeps running and nothing
+          // navigates away until the user taps Proceed. Otherwise: a
+          // low-light/no-detection rescue card after a few idle seconds,
+          // a batch-mode hint, or the default alignment nudge.
           Positioned(
             left: RadhaSpacing.space24,
             right: RadhaSpacing.space24,
             bottom: 184,
             child: Center(
-              child: _showHelp
-                  ? _TroubleCard(onFlash: _toggleTorch, onLabel: _openLabelScan)
-                  : _HelperPill(
-                      text: _batchMode ? l10n.scanBatchHint : l10n.scanAlignHint,
-                    ),
+              child: _candidateCode != null
+                  ? _ScanCandidateCard(
+                      code: _candidateCode!,
+                      streak: _candidateStreak,
+                      required: _kRequiredAgreement,
+                      confirmed: _candidateConfirmed,
+                      onProceed: _proceed,
+                    )
+                  : _showHelp
+                      ? _TroubleCard(onFlash: _toggleTorch, onLabel: _openLabelScan)
+                      : _HelperPill(
+                          text: _batchMode ? l10n.scanBatchHint : l10n.scanAlignHint,
+                        ),
             ),
           ),
 
@@ -673,6 +736,79 @@ class _HelperPill extends StatelessWidget {
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
           color: RadhaColors.onPrimary,
         ),
+      ),
+    );
+  }
+}
+
+/// Shown under the scan frame once a checksum-valid barcode has been read at
+/// least once — the code itself, live streak progress towards
+/// [_ScanScreenState._kRequiredAgreement], and a Proceed button that only
+/// unlocks once enough consecutive frames agree. The camera keeps running
+/// the whole time; nothing navigates away until the user taps Proceed.
+class _ScanCandidateCard extends StatelessWidget {
+  const _ScanCandidateCard({
+    required this.code,
+    required this.streak,
+    required this.required,
+    required this.confirmed,
+    required this.onProceed,
+  });
+
+  final String code;
+  final int streak;
+  final int required;
+  final bool confirmed;
+  final VoidCallback onProceed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
+    return Container(
+      padding: const EdgeInsets.all(RadhaSpacing.space16),
+      decoration: BoxDecoration(
+        color: RadhaColors.ink.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusLg),
+        border: Border.all(
+          color: confirmed
+              ? RadhaColors.success
+              : RadhaColors.onPrimary.withValues(alpha: 0.12),
+          width: confirmed ? 1.5 : 1,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            code,
+            style: radhaMonoStyle(
+              fontSize: 20,
+              color: RadhaColors.onPrimary,
+            ).copyWith(fontWeight: FontWeight.w700, letterSpacing: 1.5),
+          ),
+          const SizedBox(height: RadhaSpacing.space4),
+          Text(
+            confirmed
+                ? l10n.scanCandidateVerified
+                : l10n.scanCandidateVerifying(code, streak, required),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: confirmed
+                  ? RadhaColors.success
+                  : RadhaColors.onPrimary.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space12),
+          SizedBox(
+            width: double.infinity,
+            height: kMinTouchTarget,
+            child: FilledButton(
+              onPressed: confirmed ? onProceed : null,
+              child: Text(l10n.scanProceed),
+            ),
+          ),
+        ],
       ),
     );
   }

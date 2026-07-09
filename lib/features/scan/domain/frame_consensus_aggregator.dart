@@ -347,6 +347,9 @@ class FrameConsensusAggregator {
             oldValue: incumbentValue,
             newValue: challenger.cluster.representative,
             reason: 'outvoted',
+            nutrientKey: field == LabelField.nutrition
+                ? key.substring('nutrition.'.length)
+                : null,
           ));
           _confirmedIncumbent[key] = challenger.cluster.representative;
         } else {

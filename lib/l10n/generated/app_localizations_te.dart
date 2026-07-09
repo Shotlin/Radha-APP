@@ -1022,6 +1022,17 @@ class AppLocalizationsTe extends AppLocalizations {
   String get scanAlignHint => 'బార్‌కోడ్‌ను ఫ్రేమ్‌లో సరిచేయండి';
 
   @override
+  String scanCandidateVerifying(String code, int streak, int required) {
+    return 'Verifying $code — $streak/$required reads agree';
+  }
+
+  @override
+  String get scanCandidateVerified => 'Verified — ready to proceed';
+
+  @override
+  String get scanProceed => 'Proceed';
+
+  @override
   String get scanBatchHint =>
       'బ్యాచ్ మోడ్ — స్కాన్ చేస్తూ ఉండండి, అంశాలు ఆటోమేటిక్‌గా జోడించబడతాయి';
 
