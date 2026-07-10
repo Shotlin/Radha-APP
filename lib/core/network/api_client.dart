@@ -13,6 +13,7 @@ import 'package:radha_app/core/network/dto/allergen_profile_dto.dart';
 import 'package:radha_app/core/network/dto/auth_dto.dart';
 import 'package:radha_app/core/network/dto/catalog_dto.dart';
 import 'package:radha_app/core/network/dto/ean_dto.dart';
+import 'package:radha_app/core/network/dto/batch_dates_dto.dart';
 import 'package:radha_app/core/network/dto/expiry_dto.dart';
 import 'package:radha_app/core/network/dto/grn_dto.dart';
 import 'package:radha_app/core/network/dto/health_assessment_dto.dart';
@@ -174,7 +175,12 @@ abstract class ApiClient {
 
   // ─── Expiry ─────────────────────────────────────────────────────────────
   @POST('/api/v1/expiry-records')
-  Future<ExpiryResponse> createExpiry(@Body() CreateExpiryDto body);
+  Future<ExpiryResponse> createExpiry(
+    @Body() CreateExpiryDto body, {
+    // Sent by the outbox on replay so duplicate network-retry writes are
+    // de-duplicated server-side (Phase 8 idempotency_records table).
+    @Header('Idempotency-Key') String? idempotencyKey,
+  });
 
   @GET('/api/v1/expiry-records')
   Future<List<ExpiryResponse>> getExpiryRecords({
@@ -188,6 +194,23 @@ abstract class ApiClient {
 
   @DELETE('/api/v1/expiry-records/{id}')
   Future<void> deleteExpiry(@Path('id') String id);
+
+  // ─── Batch Dates (Feature B — crowd-sourced expiry by batch code) ────────
+  @GET('/api/v1/products/{ean}/batches')
+  Future<BatchListResponse> getProductBatches(@Path('ean') String ean);
+
+  @GET('/api/v1/products/{ean}/batches/{batchCode}/dates')
+  Future<BatchDatesResponse> getBatchDates(
+    @Path('ean') String ean,
+    @Path('batchCode') String batchCode,
+  );
+
+  @POST('/api/v1/products/{ean}/batches/{batchCode}/observations')
+  Future<ObservationResponse> postBatchObservation(
+    @Path('ean') String ean,
+    @Path('batchCode') String batchCode,
+    @Body() CreateObservationDto body,
+  );
 
   // ─── Tasks ──────────────────────────────────────────────────────────────
   @POST('/api/v1/tasks')
@@ -432,13 +455,6 @@ abstract class ApiClient {
 
   @GET('/api/v1/sync/pull')
   Future<SyncPullResponse> syncPull({@Query('since') String? since});
-
-  // ─── OCR Fallback (BE-45) ───────────────────────────────────────────────
-  // Real backing endpoint for the expiry-date cloud fallback — takes the
-  // on-device ML Kit transcript via `preExtractedText` rather than
-  // re-uploading the image. See `OcrRequestSchema` on the backend.
-  @POST('/api/v1/ai/ocr/expiry')
-  Future<OcrFallbackResponse> ocrExpiry(@Body() Map<String, dynamic> body);
 
   // ─── Shopping List ─────────────────────────────────────────────────────
   // Backend: /api/v1/shopping-lists (multi-list per user)

@@ -246,16 +246,34 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
       body: body,
       floatingActionButton: selectedStoreId == null
           ? null
-          : FloatingActionButton.extended(
-              heroTag: 'expiry_fab',
-              backgroundColor: RadhaColors.primary,
-              foregroundColor: RadhaColors.onPrimary,
-              onPressed: () {
-                HapticFeedback.lightImpact();
-                context.push(AppRoute.expiryNew);
-              },
-              icon: const Icon(Icons.add_rounded),
-              label: Text(l10n.add),
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'batch_scan_fab',
+                  backgroundColor: RadhaColors.inkRaised,
+                  foregroundColor: Colors.white,
+                  tooltip: 'Batch scan',
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    context.push(AppRoute.batchScan);
+                  },
+                  child: const Icon(Icons.document_scanner_rounded, size: 20),
+                ),
+                const SizedBox(height: 12),
+                FloatingActionButton.extended(
+                  heroTag: 'expiry_fab',
+                  backgroundColor: RadhaColors.primary,
+                  foregroundColor: RadhaColors.onPrimary,
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    context.push(AppRoute.expiryNew);
+                  },
+                  icon: const Icon(Icons.add_rounded),
+                  label: Text(l10n.add),
+                ),
+              ],
             ),
     );
   }
@@ -725,9 +743,12 @@ class _ExpiryListTile extends StatelessWidget {
     return dateOnly.difference(todayOnly).inDays;
   }
 
-  String _shortProduct(AppLocalizations l10n) {
-    // The list endpoint returns productId only; show a stable short token
-    // rather than a raw uuid until the product-name join lands server-side.
+  String _displayName(AppLocalizations l10n) {
+    // productName is now server-joined (Phase 9). Fall back to the short UUID
+    // token for records created offline or before the server-side join landed.
+    if (item.productName != null && item.productName!.isNotEmpty) {
+      return item.productName!;
+    }
     final id = item.productId;
     final token = id.length <= 8 ? id : id.substring(0, 8);
     return l10n.expiryProductShort(token);
@@ -769,7 +790,7 @@ class _ExpiryListTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _shortProduct(l10n),
+                  _displayName(l10n),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(

@@ -33,6 +33,7 @@ class ExpiryResponse {
     required this.id,
     required this.productId,
     required this.expiryDate,
+    this.productName,
     this.batchNumber,
     this.quantity,
     this.status,
@@ -40,6 +41,11 @@ class ExpiryResponse {
 
   final String id;
   final String productId;
+
+  /// Server-joined product name. Null when the join returns no row (e.g.
+  /// offline-queued records that haven't synced yet) — fall back to the
+  /// short ID token display in that case.
+  final String? productName;
   final String expiryDate;
   final String? batchNumber;
   final int? quantity;

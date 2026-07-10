@@ -55,6 +55,11 @@ class PendingWrites extends Table {
   /// `null` means "ready immediately" (the value at enqueue time, before
   /// the first failure).
   IntColumn get nextRetryAt => integer().nullable()();
+
+  /// UUID sent as `Idempotency-Key` header on every retry so the server
+  /// de-duplicates duplicate network-retry writes (Phase 8 idempotency_records
+  /// table). Null for writes that pre-date Phase 9 or don't need idempotency.
+  TextColumn get idempotencyKey => text().nullable()();
 }
 
 /// Local copy of `GET /products/ean/:ean` responses keyed by EAN, so the
@@ -82,7 +87,19 @@ class RadhaDatabase extends _$RadhaDatabase {
   RadhaDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+    onCreate: (m) => m.createAll(),
+    onUpgrade: (m, from, to) async {
+      if (from < 2) {
+        // Phase 9: add idempotency_key column to pending_writes so the outbox
+        // can send Idempotency-Key headers on replay and avoid duplicate writes.
+        await m.addColumn(pendingWrites, pendingWrites.idempotencyKey);
+      }
+    },
+  );
 
   // ── Pending writes queries ────────────────────────────────────────────
 
@@ -94,6 +111,7 @@ class RadhaDatabase extends _$RadhaDatabase {
     required DateTime createdAt,
     DateTime? nextRetryAt,
     String? lastError,
+    String? idempotencyKey,
     int retryCount = 0,
   }) {
     return into(pendingWrites).insert(
@@ -104,6 +122,7 @@ class RadhaDatabase extends _$RadhaDatabase {
         createdAt: createdAt.millisecondsSinceEpoch,
         retryCount: Value(retryCount),
         lastError: Value(lastError),
+        idempotencyKey: Value(idempotencyKey),
         nextRetryAt: Value(nextRetryAt?.millisecondsSinceEpoch),
       ),
     );

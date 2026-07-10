@@ -26,6 +26,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,14 +36,18 @@ import '../../design/tokens.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../design/widgets/radha_status_chip.dart';
 import 'camera_image_converter.dart';
+import 'data/label_photo_analysis_repository.dart';
 import 'data/product_submission_repository.dart';
 import 'domain/frame_consensus_aggregator.dart';
+import 'domain/frame_extraction_worker.dart';
 import 'domain/label_field_extractor.dart';
 import 'domain/label_field_models.dart';
+import 'domain/label_source_merger.dart';
 import 'domain/product_name_extractor.dart';
+import '../../core/network/dto/ai_dto.dart';
 import '../../core/network/dto/product_submission_dto.dart';
 
-const Duration _kFrameInterval = Duration(milliseconds: 600);
+const Duration _kFrameInterval = Duration(milliseconds: 300);
 
 /// Consecutive identical/steady reads required before auto-filling a value
 /// from OCR — same "repeated checking before trusting" discipline used for
@@ -100,7 +105,10 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
 
   // Step-1 auto-capture: once N consecutive frames find ANY plausible
   // label content, the photo is captured automatically. A manual capture
-  // button is always available too, so nobody is stuck waiting.
+  // button is always available too, so nobody is stuck waiting. See the
+  // long comment at the auto-capture call site (_recognizeFrame) for why
+  // this intentionally does NOT also wait for the nutrition table
+  // specifically to be in frame.
   int _goodFrameStreak = 0;
   File? _photo;
 
@@ -111,6 +119,16 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
   /// scanning" apart from "silently stuck."
   int _framesProcessed = 0;
 
+  /// User-controlled: the live scan otherwise keeps running (feeding OCR,
+  /// re-merging fields) on every step for as long as this screen is open,
+  /// even well after a value has already looked right — a field can keep
+  /// getting silently re-voted and drift away from a correct reading the
+  /// user already saw (founder-reported, 2026-07-09). Tapping the live-scan
+  /// pill stops the camera's image-analysis stream outright (not just a
+  /// processing no-op) so it also stops costing battery/CPU, not merely
+  /// stops touching the form.
+  bool _liveScanPaused = false;
+
   // Step-2 product-name consensus (see product_name_extractor.dart). Once
   // a candidate reaches _kRequiredAgreement once, it's confirmed and OCR
   // stops touching the field — otherwise the camera drifting onto some
@@ -120,6 +138,31 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
   // re-scan starts clean.
   String? _nameCandidate;
   int _nameStreak = 0;
+
+  // Cloud vision-native analysis (Gemini reads the photo directly — see
+  // label_photo_analysis_repository.dart). Runs concurrently with the
+  // on-device still-photo OCR pass, not instead of it; the two are merged
+  // via label_source_merger.dart once both are available. Never a hard
+  // dependency — any failure here silently leaves the on-device flow as
+  // the sole source of truth, per the founder's explicit "manual/on-device
+  // stays the fallback" requirement.
+  UploadedPhoto? _uploadedPhoto;
+  LabelPhotoAnalysis? _cloudResult;
+  bool _cloudAnalyzing = false;
+  String? _cloudError;
+
+  /// Fields where the cloud and on-device readings genuinely disagreed
+  /// beyond tolerance — keyed the same way _nutritionOverrides is (nutrient
+  /// key, or 'name' for the product name). Populated by _applyCloudMerge;
+  /// cleared once the user resolves it via the normal edit affordance.
+  final Map<String, (String cloud, String live)> _disagreements = {};
+
+  /// Subset of _nutritionOverrides.keys that were filled by the cloud
+  /// merge (agreeing with, or unopposed by, the live scan) rather than the
+  /// user typing a value — shown with a distinct "From cloud" chip.
+  /// Removed from this set (but the override itself kept) once the user
+  /// edits that field directly, since their edit is no longer "from cloud."
+  final Set<String> _cloudFilledKeys = {};
   bool _nameConfirmedByOcr = false;
 
   /// True while the post-capture still-photo OCR cross-check
@@ -188,7 +231,13 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
         await controller.dispose();
         return;
       }
-      await controller.startImageStream((image) => _onFrame(image, back));
+      // Respect a scan the user had already paused before the app was
+      // backgrounded (didChangeAppLifecycleState rebuilds the controller
+      // from scratch on resume) — otherwise resuming would silently
+      // restart the camera's image-analysis stream against their choice.
+      if (!_liveScanPaused) {
+        await controller.startImageStream((image) => _onFrame(image, back));
+      }
       setState(() {
         _ready = true;
         _cameraError = null;
@@ -201,7 +250,7 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
   }
 
   void _onFrame(CameraImage image, CameraDescription camera) {
-    if (_processingFrame || !_ready || _stage != _Stage.editing) return;
+    if (_liveScanPaused || _processingFrame || !_ready || _stage != _Stage.editing) return;
     final now = DateTime.now();
     if (_lastProcessedAt != null && now.difference(_lastProcessedAt!) < _kFrameInterval) {
       return;
@@ -209,6 +258,23 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
     _lastProcessedAt = now;
     _processingFrame = true;
     _recognizeFrame(image, camera).whenComplete(() => _processingFrame = false);
+  }
+
+  Future<void> _toggleLiveScan() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    final camera = _camera;
+    if (_liveScanPaused) {
+      if (camera != null && !controller.value.isStreamingImages) {
+        await controller.startImageStream((image) => _onFrame(image, camera));
+      }
+      if (mounted) setState(() => _liveScanPaused = false);
+    } else {
+      if (controller.value.isStreamingImages) {
+        await controller.stopImageStream();
+      }
+      if (mounted) setState(() => _liveScanPaused = true);
+    }
   }
 
   Future<void> _recognizeFrame(CameraImage image, CameraDescription camera) async {
@@ -234,27 +300,63 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
         return;
       }
 
-      final candidates = LabelFieldExtractor.extract(text);
-      if (!candidates.isEmpty) _aggregator.addFrame(candidates);
-
-      // Product name: the OCR block containing the tallest plausible
-      // line, joined whole — a name is often split across a couple of
-      // stacked lines of different sizes (brand + flavour/variant), and
-      // ML Kit's own block grouping already clusters those together.
+      // Product name candidate selection needs the OCR block/line
+      // structure (a name often spans a couple of stacked lines of
+      // different sizes — brand + flavour/variant — and ML Kit's own
+      // block grouping already clusters those together), built here on
+      // the main isolate since ML Kit's result objects themselves aren't
+      // sendable across isolates.
       final blocks = <List<(String, double)>>[
         for (final block in recognized.blocks)
           [for (final line in block.lines) (line.text, line.boundingBox.height)],
       ];
-      final nameGuess = ProductNameExtractor.bestCandidate(blocks);
+
+      // The actual extraction work (regex field matching, name-candidate
+      // selection, ingredients text) is CPU-bound pure Dart that used to
+      // run inline on every frame, competing with widget build/layout/
+      // paint on the same UI thread — disproportionately costly on a
+      // low-end device. Run it on a background isolate instead; see
+      // frame_extraction_worker.dart.
+      final extraction = await compute(
+        extractFrameData,
+        FrameExtractionInput(text: text, blocks: blocks, extractIngredients: true),
+      );
+      // compute() is itself a genuine suspension point — same disposal
+      // risk as the ML Kit await above.
+      if (!mounted) return;
+
+      final candidates = extraction.candidates;
+      if (!candidates.isEmpty) _aggregator.addFrame(candidates);
+
+      final nameGuess = extraction.nameGuess;
       if (nameGuess != null && !_nameConfirmedByOcr && !_nameEditedByUser) {
-        if (nameGuess == _nameCandidate) {
+        // Fuzzy-tolerant streak, not byte-exact — a live, shaky, low-res
+        // feed rarely reads the exact same string twice in a row (motion
+        // blur, one dropped/extra character, a stray space), and requiring
+        // exact equality reset the streak to 1 on nearly every frame,
+        // making convergence unreliable. Same discipline the aggregator
+        // already uses for date/nutrition consensus, just applied here
+        // (levenshtein() is already exported by frame_consensus_aggregator.dart,
+        // imported above). Tolerance scales with length so short names stay
+        // strict while longer ones get proportionally more slack.
+        final candidate = _nameCandidate;
+        final tolerance = (nameGuess.length * 0.15).ceil().clamp(1, 5);
+        final isFuzzyMatch =
+            candidate != null && levenshtein(nameGuess, candidate) <= tolerance;
+        if (isFuzzyMatch) {
           if (_nameStreak < _kRequiredAgreement) _nameStreak++;
+          // Keep the more complete reading as the streak's representative —
+          // same "longer read wins" logic used for ingredients below.
+          if (nameGuess.length > candidate.length) _nameCandidate = nameGuess;
         } else {
           _nameCandidate = nameGuess;
           _nameStreak = 1;
         }
         if (_nameStreak >= _kRequiredAgreement) {
-          _nameController.text = nameGuess;
+          // Use the streak's accumulated representative, not necessarily
+          // this exact frame's read — _nameCandidate may already hold a
+          // more complete variant seen earlier in the same streak.
+          _nameController.text = _nameCandidate!;
           _nameConfirmedByOcr = true;
         }
       }
@@ -269,7 +371,7 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
       // model (it's free text, not a value repeated across frames), so
       // this just keeps the longest candidate seen — OCR usually
       // truncates the tail, so a longer read is a strictly better one.
-      final ingredients = _extractIngredients(text);
+      final ingredients = extraction.ingredients;
       if (ingredients != null &&
           !_ingredientsEditedByUser &&
           ingredients.length > _ingredientsController.text.length) {
@@ -282,8 +384,19 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
       // Step 1's auto-capture: once the frame has looked steadily
       // "readable" for a few frames in a row, take the representative
       // photo automatically. Never fires more than once per screen visit
-      // to step 1 (guarded by _photo == null), and a manual button covers
-      // anyone whose label doesn't OCR-detect cleanly.
+      // (guarded by _photo == null); a manual button covers anyone whose
+      // label doesn't OCR-detect cleanly.
+      //
+      // This deliberately does NOT wait for the nutrition table
+      // specifically to be visible (it used to, via a second
+      // "_nutritionFrameStreak >= 2" condition that the capture-status
+      // pill never reflected — the pill would say "ready" while capture
+      // silently waited on a condition the user had no way to see or
+      // satisfy, which was the single biggest contributor to the
+      // "stuck for minutes" complaint). The cloud photo-analysis pass
+      // (_analyzePhotoWithCloud) is now the nutrition source of truth, so
+      // capture only needs to be "worth a round-trip," not "guaranteed to
+      // contain every panel."
       if (_step == _Step.photo &&
           _photo == null &&
           !_capturing &&
@@ -296,37 +409,6 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
       // Same policy as the expiry scanner: a failed frame is just one
       // fewer vote this round, never a surfaced error.
     }
-  }
-
-  // Boundary keywords that mark the end of an INGREDIENTS run-on section —
-  // whichever comes first cuts the capture so it doesn't swallow the
-  // nutrition panel or MFG/EXP/batch block that typically follows it.
-  static final RegExp _ingredientsHeader = RegExp(
-    r'INGREDIENTS?(?:\s*LIST)?\s*[:.\-]?\s*',
-    caseSensitive: false,
-  );
-  static final RegExp _ingredientsBoundary = RegExp(
-    r'\b(NUTRITION(?:AL)?|ENERGY|ALLERGEN|STORAGE|STORE\s*IN|MFD|MFG|EXP|'
-    r'EXPIRY|BEST\s*BEFORE|USE\s*BY|BATCH|NET\s*(WT|WEIGHT|QTY)|BARCODE|'
-    r'FSSAI|CUSTOMER\s*CARE)\b',
-    caseSensitive: false,
-  );
-
-  /// Best-effort extraction of the label's INGREDIENTS run-on text from
-  /// one frame's OCR transcript, or null if no INGREDIENTS header was
-  /// found at all. Deliberately simple/free-text (unlike the structured
-  /// date/nutrition parsers) — ingredient lists have no fixed format.
-  static String? _extractIngredients(String text) {
-    final headerMatch = _ingredientsHeader.firstMatch(text);
-    if (headerMatch == null) return null;
-    final afterHeader = text.substring(headerMatch.end);
-    final boundaryMatch = _ingredientsBoundary.firstMatch(afterHeader);
-    final raw = boundaryMatch != null
-        ? afterHeader.substring(0, boundaryMatch.start)
-        : afterHeader;
-    final cleaned = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (cleaned.length < 8) return null;
-    return cleaned.length > 800 ? cleaned.substring(0, 800).trim() : cleaned;
   }
 
   Future<void> _capturePhoto() async {
@@ -359,6 +441,11 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
       // high-resolution photo…" state on the name step so this never
       // reads as a silent, unexplained pause.
       unawaited(_verifyPhotoWithOcr(photo));
+      // Cloud vision-native pass — runs concurrently, not sequentially.
+      // Uploads immediately (not waiting for final submit) so the round
+      // trip starts as early as possible; typically resolves in a few
+      // seconds while the user is still on the name/details steps.
+      unawaited(_analyzePhotoWithCloud(photo));
     } catch (_) {
       // Leave _photo null — the manual capture button lets the user retry.
     } finally {
@@ -429,7 +516,9 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
         for (var i = 0; i < _kRequiredAgreement; i++) {
           _aggregator.addFrame(candidates);
         }
-        final ingredients = _extractIngredients(recognized.text);
+        final ingredients = extractFrameData(
+          FrameExtractionInput(text: recognized.text, extractIngredients: true),
+        ).ingredients;
         if (ingredients != null &&
             !_ingredientsEditedByUser &&
             ingredients.length > _ingredientsController.text.length) {
@@ -445,12 +534,200 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
     }
   }
 
+  static const Map<String, String> _cloudNutrientKeyMap = {
+    'energy': 'calories',
+    'protein': 'protein',
+    'fat': 'fat',
+    'carbohydrate': 'carbohydrates',
+    'sugar': 'sugars',
+    'sodium': 'sodium',
+  };
+
+  /// Uploads the captured photo (if not already uploaded) and sends it to
+  /// the vision-native cloud analysis endpoint — reads the label as an
+  /// image directly rather than flattening it to OCR text first, which is
+  /// what actually fixes wrong/missing nutrition values on curved labels
+  /// (see label_source_merger.dart's file doc for the full rationale).
+  /// Never a hard dependency: any failure here (network, quota, provider
+  /// down) leaves the on-device flow as the sole source of truth, exactly
+  /// as if this method didn't exist.
+  Future<void> _analyzePhotoWithCloud(File photo) async {
+    if (!mounted) return;
+    setState(() {
+      _cloudAnalyzing = true;
+      _cloudError = null;
+    });
+    try {
+      final uploaded = _uploadedPhoto ??
+          await ref.read(productSubmissionRepositoryProvider).uploadPhotoEarly(photo);
+      if (!mounted) return;
+      _uploadedPhoto = uploaded;
+
+      final result = await ref
+          .read(labelPhotoAnalysisRepositoryProvider)
+          .analyzePhoto(mediaId: uploaded.mediaId);
+      if (!mounted) return;
+      setState(() => _cloudResult = result);
+      if (result.hasContent) {
+        _applyCloudMerge(result);
+      } else if (result.warnings.isNotEmpty) {
+        setState(() => _cloudError = result.warnings.first);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _cloudError = 'Cloud analysis unavailable — using on-device scan only');
+      }
+    } finally {
+      if (mounted) setState(() => _cloudAnalyzing = false);
+    }
+  }
+
+  /// Compares the cloud result against whatever the live on-device scan
+  /// already found, field by field, via label_source_merger.dart. Never
+  /// overwrites a field the user has already edited by hand.
+  void _applyCloudMerge(LabelPhotoAnalysis result) {
+    if (!_nameEditedByUser) {
+      final nameMerge = LabelSourceMerger.mergeText(
+        cloudValue: result.productName,
+        liveValue: _nameConfirmedByOcr ? _nameController.text : null,
+        liveConfirmed: _nameConfirmedByOcr,
+      );
+      switch (nameMerge.status) {
+        case MergeStatus.cloudOnly:
+        case MergeStatus.agreed:
+          if (nameMerge.value != null) {
+            setState(() {
+              _nameController.text = nameMerge.value!;
+              _nameConfirmedByOcr = true;
+              _disagreements.remove('name');
+            });
+          }
+        case MergeStatus.disagreement:
+          setState(() {
+            _disagreements['name'] = (nameMerge.cloudValue!, nameMerge.liveValue!);
+          });
+        case MergeStatus.none:
+          break;
+      }
+    }
+
+    // Ingredients are free text (not a fixed-tolerance comparable value) —
+    // same "longer read wins" heuristic used for the on-device still-photo
+    // merge, no formal disagreement UI.
+    if (result.ingredients.isNotEmpty && !_ingredientsEditedByUser) {
+      final cloudText = result.ingredients.join(', ');
+      if (cloudText.length > _ingredientsController.text.length) {
+        setState(() => _ingredientsController.text = cloudText);
+      }
+    }
+
+    final panel = result.nutritionPanel;
+    if (panel == null) return;
+
+    final live = _aggregator.nutritionStatus();
+    for (final entry in _cloudNutrientKeyMap.entries) {
+      final localKey = entry.key;
+      // A field the user already resolved by hand (typed, or picked one
+      // side of an earlier disagreement) is settled — never revisit it.
+      if (_nutritionOverrides.containsKey(localKey) && !_cloudFilledKeys.contains(localKey)) {
+        continue;
+      }
+      final cloudValue = _panelValue(panel, entry.value);
+      if (cloudValue == null) continue;
+
+      final liveConsensus = live[localKey];
+      final liveConfirmed = liveConsensus?.confirmed ?? false;
+      final liveValue =
+          liveConfirmed ? double.tryParse(liveConsensus!.leadingValue ?? '') : null;
+      final merged = LabelSourceMerger.mergeNumber(
+        cloudValue: cloudValue,
+        liveValue: liveValue,
+        liveConfirmed: liveConfirmed,
+      );
+      switch (merged.status) {
+        case MergeStatus.cloudOnly:
+        case MergeStatus.agreed:
+          if (merged.value != null) {
+            setState(() {
+              _nutritionOverrides[localKey] = _formatNutrientValue(localKey, merged.value!);
+              _cloudFilledKeys.add(localKey);
+              _disagreements.remove(localKey);
+            });
+          }
+        case MergeStatus.disagreement:
+          setState(() {
+            _disagreements[localKey] = (
+              _formatNutrientValue(localKey, merged.cloudValue!),
+              _formatNutrientValue(localKey, merged.liveValue!),
+            );
+          });
+        case MergeStatus.none:
+          break;
+      }
+    }
+
+    if (panel.servingUnit != null) {
+      final resolved = panel.servingUnit!.toUpperCase().startsWith('ML') ? 'ml' : 'g';
+      if (resolved != _nutritionUnit) {
+        setState(() => _nutritionUnit = resolved);
+      }
+    }
+  }
+
+  static double? _panelValue(LabelPhotoNutritionPanel panel, String key) {
+    switch (key) {
+      case 'calories':
+        return panel.calories;
+      case 'protein':
+        return panel.protein;
+      case 'fat':
+        return panel.fat;
+      case 'carbohydrates':
+        return panel.carbohydrates;
+      case 'sugars':
+        return panel.sugars;
+      case 'sodium':
+        return panel.sodium;
+      default:
+        return null;
+    }
+  }
+
+  /// Per-nutrient unit is fixed regardless of the panel's overall serving
+  /// basis (_nutritionUnit is "g" vs "ml" for the *denominator* — "per
+  /// 100ml" — not the nutrient's own measurement unit; sodium is always
+  /// measured in mg even on a per-100ml liquid label). Matches
+  /// label_field_extractor.dart's own normalization convention.
+  static String _unitFor(String localKey) {
+    if (localKey == 'energy') return 'kcal';
+    if (localKey == 'sodium') return 'mg';
+    return 'g';
+  }
+
+  static String _formatNutrientValue(String localKey, double value) {
+    // Whole numbers display without a trailing ".0"; otherwise keep one
+    // decimal place — matches the precision nutrition labels actually print.
+    final rounded = (value * 10).round() / 10;
+    final text = rounded == rounded.roundToDouble()
+        ? rounded.toInt().toString()
+        : rounded.toStringAsFixed(1);
+    return '$text${_unitFor(localKey)}';
+  }
+
   void _retakePhoto() {
     HapticFeedback.selectionClick();
     setState(() {
       _photo = null;
       _goodFrameStreak = 0;
       _step = _Step.photo;
+      // A new photo needs its own fresh cloud analysis — the old upload/
+      // result belonged to the discarded photo. Leave already-resolved
+      // nutrition overrides/disagreements alone: those reflect the live
+      // stream's own ongoing state, not this specific photo.
+      _uploadedPhoto = null;
+      _cloudResult = null;
+      _cloudAnalyzing = false;
+      _cloudError = null;
       if (!_nameEditedByUser) {
         _nameConfirmedByOcr = false;
         _nameCandidate = null;
@@ -482,6 +759,9 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
             ingredients: _ingredientsController.text,
             nutrition: nutrition,
             photo: photo,
+            // Already uploaded right after capture (for the cloud analysis
+            // pass) — reuse it instead of uploading the same bytes twice.
+            alreadyUploaded: _uploadedPhoto,
           );
       // The local temp photo has done its job (auto-fill source, and
       // whatever the repository already uploaded/attached) — delete the
@@ -545,24 +825,52 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
 
   Future<void> _editNutrientValue(String key) async {
     final live = _aggregator.nutritionStatus();
-    final current = _nutritionValue(key, live) ?? '';
+    final disagreement = _disagreements[key];
+    final current = disagreement == null ? (_nutritionValue(key, live) ?? '') : '';
     final controller = TextEditingController(text: current);
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(_nutrientLabel(key)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          // Plain text, not a numeric keypad — a value here is often more
-          // than a bare number ("11.5 g", "250 ml", "<1g", "Not
-          // mentioned"), and a numeric-only keyboard makes typing that
-          // awkward or impossible on some devices.
-          keyboardType: TextInputType.text,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: InputDecoration(
-            hintText: 'e.g. 11.5 $_nutritionUnit, or "Not mentioned"',
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (disagreement != null) ...[
+              Text(
+                'The camera and the cloud scan disagreed — pick one, or type your own.',
+                style: Theme.of(ctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: RadhaSpacing.space8),
+              Wrap(
+                spacing: RadhaSpacing.space8,
+                children: [
+                  ActionChip(
+                    label: Text('Cloud: ${disagreement.$1}'),
+                    onPressed: () => Navigator.of(ctx).pop(disagreement.$1),
+                  ),
+                  ActionChip(
+                    label: Text('Camera: ${disagreement.$2}'),
+                    onPressed: () => Navigator.of(ctx).pop(disagreement.$2),
+                  ),
+                ],
+              ),
+              const SizedBox(height: RadhaSpacing.space12),
+            ],
+            TextField(
+              controller: controller,
+              autofocus: disagreement == null,
+              // Plain text, not a numeric keypad — a value here is often
+              // more than a bare number ("11.5 g", "250 ml", "<1g", "Not
+              // mentioned"), and a numeric-only keyboard makes typing that
+              // awkward or impossible on some devices.
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                hintText: 'e.g. 11.5 $_nutritionUnit, or "Not mentioned"',
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -577,8 +885,12 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
       ),
     );
     controller.dispose();
-    if (result != null && mounted) {
-      setState(() => _nutritionOverrides[key] = result);
+    if (result != null && result.isNotEmpty && mounted) {
+      setState(() {
+        _nutritionOverrides[key] = result;
+        _cloudFilledKeys.remove(key);
+        _disagreements.remove(key);
+      });
     }
   }
 
@@ -708,7 +1020,11 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
             Positioned(
               top: RadhaSpacing.space12,
               right: RadhaSpacing.space12,
-              child: _LiveScanIndicator(frames: _framesProcessed),
+              child: _LiveScanIndicator(
+                frames: _framesProcessed,
+                paused: _liveScanPaused,
+                onToggle: _toggleLiveScan,
+              ),
             ),
           if (_step == _Step.photo)
             Positioned(
@@ -849,12 +1165,20 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
         RadhaSpacing.space8,
       ),
       children: [
+        _CloudAnalysisStatus(
+          analyzing: _cloudAnalyzing,
+          hasResult: _cloudResult?.hasContent ?? false,
+          error: _cloudError,
+        ),
+        const SizedBox(height: RadhaSpacing.space12),
         Text('Nutrition (per 100$_nutritionUnit)', style: theme.textTheme.labelLarge),
         const SizedBox(height: RadhaSpacing.space8),
         _NutritionTable(
           nutrition: nutrition,
           unit: _nutritionUnit,
           overrideKeys: _nutritionOverrides.keys.toSet(),
+          cloudKeys: _cloudFilledKeys,
+          disagreements: _disagreements,
           valueOf: (key) => _nutritionValue(key, nutrition),
           onEdit: _editNutrientValue,
         ),
@@ -938,6 +1262,8 @@ class _ContributeProductScreenState extends ConsumerState<ContributeProductScree
             nutrition: nutrition,
             unit: _nutritionUnit,
             overrideKeys: _nutritionOverrides.keys.toSet(),
+            cloudKeys: _cloudFilledKeys,
+            disagreements: _disagreements,
             valueOf: (key) => _nutritionValue(key, nutrition),
             onEdit: _editNutrientValue,
           ),
@@ -1154,10 +1480,22 @@ class _StepReadyBanner extends StatelessWidget {
 /// every step while the camera is active — a pulsing dot plus the live
 /// running frame count, so it's never ambiguous whether the camera is
 /// actually still scanning or has silently stalled.
+///
+/// Tappable: the live scan otherwise never stops on its own for as long as
+/// this screen stays open, which can keep re-voting a field long after the
+/// user is satisfied with it — this is the manual "stop scanning" control
+/// (founder-requested, 2026-07-09) so the camera's image stream can be shut
+/// off outright once the visible fields look right, not just muted.
 class _LiveScanIndicator extends StatefulWidget {
-  const _LiveScanIndicator({required this.frames});
+  const _LiveScanIndicator({
+    required this.frames,
+    required this.paused,
+    required this.onToggle,
+  });
 
   final int frames;
+  final bool paused;
+  final VoidCallback onToggle;
 
   @override
   State<_LiveScanIndicator> createState() => _LiveScanIndicatorState();
@@ -1178,44 +1516,60 @@ class _LiveScanIndicatorState extends State<_LiveScanIndicator>
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: RadhaSpacing.space12,
-        vertical: RadhaSpacing.space4,
-      ),
-      decoration: BoxDecoration(
-        color: RadhaColors.ink.withValues(alpha: 0.62),
+    final paused = widget.paused;
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: widget.onToggle,
         borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FadeTransition(
-            opacity: _pulse,
-            child: const _Dot(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: RadhaSpacing.space12,
+            vertical: RadhaSpacing.space4,
           ),
-          const SizedBox(width: RadhaSpacing.space8),
-          Text(
-            'Scanning live · ${widget.frames}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: RadhaColors.onPrimary,
-            ),
+          decoration: BoxDecoration(
+            color: RadhaColors.ink.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
           ),
-        ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (paused)
+                const _Dot(color: RadhaColors.onPrimary)
+              else
+                FadeTransition(opacity: _pulse, child: const _Dot()),
+              const SizedBox(width: RadhaSpacing.space8),
+              Text(
+                paused ? 'Scanning paused · tap to resume' : 'Scanning live · ${widget.frames}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: RadhaColors.onPrimary,
+                ),
+              ),
+              const SizedBox(width: RadhaSpacing.space8),
+              Icon(
+                paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                size: 16,
+                color: RadhaColors.onPrimary,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 class _Dot extends StatelessWidget {
-  const _Dot();
+  const _Dot({this.color = RadhaColors.success});
+
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 8,
       height: 8,
-      decoration: const BoxDecoration(color: RadhaColors.success, shape: BoxShape.circle),
+      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
@@ -1336,6 +1690,53 @@ class _VerificationProgress extends StatelessWidget {
   }
 }
 
+/// Visible status for the cloud vision-native analysis pass — mirrors
+/// _VerificationProgress's "never a silent wait" discipline. Renders
+/// nothing until the pass has actually started (before that, there's
+/// nothing meaningful to report yet).
+class _CloudAnalysisStatus extends StatelessWidget {
+  const _CloudAnalysisStatus({
+    required this.analyzing,
+    required this.hasResult,
+    required this.error,
+  });
+
+  final bool analyzing;
+  final bool hasResult;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!analyzing && !hasResult && error == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+
+    final (icon, text, color) = analyzing
+        ? (null, 'Verifying with cloud scan…', theme.colorScheme.onSurfaceVariant)
+        : error != null
+            ? (Icons.info_outline_rounded, error!, theme.colorScheme.onSurfaceVariant)
+            : (Icons.check_circle_rounded, 'Cloud scan complete', RadhaColors.success);
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 14,
+          height: 14,
+          child: analyzing
+              ? const CircularProgressIndicator(strokeWidth: 2)
+              : Icon(icon, size: 14, color: color),
+        ),
+        const SizedBox(width: RadhaSpacing.space8),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodySmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ReviewRow extends StatelessWidget {
   const _ReviewRow({required this.label, required this.value, required this.onEdit});
 
@@ -1370,6 +1771,8 @@ class _NutritionTable extends StatelessWidget {
     required this.nutrition,
     required this.unit,
     this.overrideKeys = const {},
+    this.cloudKeys = const {},
+    this.disagreements = const {},
     required this.valueOf,
     required this.onEdit,
   });
@@ -1381,6 +1784,15 @@ class _NutritionTable extends StatelessWidget {
   /// all for them, which a hard case (e.g. a curved bottle label
   /// scrambling OCR reading order) can genuinely leave empty forever.
   final Set<String> overrideKeys;
+  /// Subset of [overrideKeys] that came from the cloud photo analysis
+  /// (agreeing with, or unopposed by, the live scan) rather than the user
+  /// typing a value directly — shown with a distinct "From cloud" chip so
+  /// the user knows it wasn't manually entered.
+  final Set<String> cloudKeys;
+  /// Nutrients where the cloud and live scans genuinely disagreed —
+  /// (cloudValue, liveValue) — shown with a "Review" chip prompting the
+  /// user to pick one via [onEdit], never silently resolved either way.
+  final Map<String, (String, String)> disagreements;
   final String? Function(String key) valueOf;
   final void Function(String key) onEdit;
 
@@ -1397,7 +1809,12 @@ class _NutritionTable extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final keys = _knownOrder
-        .where((k) => (nutrition[k]?.hasAnyReading ?? false) || overrideKeys.contains(k))
+        .where(
+          (k) =>
+              (nutrition[k]?.hasAnyReading ?? false) ||
+              overrideKeys.contains(k) ||
+              disagreements.containsKey(k),
+        )
         .toList();
     if (keys.isEmpty) {
       return Container(
@@ -1445,7 +1862,7 @@ class _NutritionTable extends StatelessWidget {
           for (final key in keys)
             _NutritionRow(
               label: _labelFor(key),
-              value: _formatForDisplay(valueOf(key)),
+              value: disagreements.containsKey(key) ? '—' : _formatForDisplay(valueOf(key)),
               consensus: nutrition[key] ??
                   FieldConsensus(
                     field: LabelField.nutrition,
@@ -1456,7 +1873,11 @@ class _NutritionTable extends StatelessWidget {
                     combinedConfidence: 1,
                     confirmed: true,
                   ),
-              manual: overrideKeys.contains(key) && !(nutrition[key]?.hasAnyReading ?? false),
+              manual: overrideKeys.contains(key) &&
+                  !cloudKeys.contains(key) &&
+                  !(nutrition[key]?.hasAnyReading ?? false),
+              fromCloud: cloudKeys.contains(key),
+              disagreement: disagreements[key],
               onEdit: () => onEdit(key),
             ),
         ],
@@ -1495,6 +1916,8 @@ class _NutritionRow extends StatelessWidget {
     required this.value,
     required this.consensus,
     this.manual = false,
+    this.fromCloud = false,
+    this.disagreement,
     required this.onEdit,
   });
 
@@ -1502,16 +1925,25 @@ class _NutritionRow extends StatelessWidget {
   final String value;
   final FieldConsensus consensus;
   final bool manual;
+  final bool fromCloud;
+  /// (cloudValue, liveValue) when the two sources disagreed — takes
+  /// priority over every other chip state; tapping edit is how the user
+  /// resolves it.
+  final (String, String)? disagreement;
   final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (chipLabel, tone) = manual
-        ? ('Manual', RadhaStatusTone.info)
-        : consensus.confirmed
-            ? ('Verified', RadhaStatusTone.success)
-            : ('${consensus.agreementCount}/${consensus.windowSize}', RadhaStatusTone.warning);
+    final (chipLabel, tone) = disagreement != null
+        ? ('Review', RadhaStatusTone.danger)
+        : fromCloud
+            ? ('From cloud', RadhaStatusTone.info)
+            : manual
+                ? ('Manual', RadhaStatusTone.info)
+                : consensus.confirmed
+                    ? ('Verified', RadhaStatusTone.success)
+                    : ('${consensus.agreementCount}/${consensus.windowSize}', RadhaStatusTone.warning);
     return Container(
       padding: const EdgeInsets.symmetric(
         horizontal: RadhaSpacing.space12,

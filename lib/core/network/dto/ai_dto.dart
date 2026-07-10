@@ -279,6 +279,132 @@ class LabelTextAnalysis {
   }
 }
 
+// ─── Label-photo analysis — `POST /api/v1/ai/label/analyze-photo` ────────
+//
+// The vision-native counterpart to LabelTextAnalysis above: the photo is
+// read directly by Gemini instead of being flattened to OCR text first —
+// this is what actually fixes wrong/missing nutrition values on curved or
+// warped labels, where on-device text-line ordering gets scrambled.
+class LabelPhotoNutritionPanel {
+  const LabelPhotoNutritionPanel({
+    this.servingSize,
+    this.servingUnit,
+    this.calories,
+    this.protein,
+    this.carbohydrates,
+    this.sugars,
+    this.fat,
+    this.saturatedFat,
+    this.transFat,
+    this.fiber,
+    this.sodium,
+  });
+
+  // Field names deliberately match NutritionPanelPayload
+  // (product_submission_dto.dart) 1:1 — the merge step builds one
+  // directly from this with no renaming.
+  final double? servingSize;
+  final String? servingUnit;
+  final double? calories;
+  final double? protein;
+  final double? carbohydrates;
+  final double? sugars;
+  final double? fat;
+  final double? saturatedFat;
+  final double? transFat;
+  final double? fiber;
+  final double? sodium;
+
+  bool get isEmpty =>
+      servingSize == null &&
+      servingUnit == null &&
+      calories == null &&
+      protein == null &&
+      carbohydrates == null &&
+      sugars == null &&
+      fat == null &&
+      saturatedFat == null &&
+      transFat == null &&
+      fiber == null &&
+      sodium == null;
+
+  factory LabelPhotoNutritionPanel.fromJson(Map<String, dynamic> json) {
+    double? numField(dynamic v) {
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v);
+      return null;
+    }
+
+    return LabelPhotoNutritionPanel(
+      servingSize: numField(json['servingSize']),
+      servingUnit: (json['servingUnit'] as String?)?.trim(),
+      calories: numField(json['calories']),
+      protein: numField(json['protein']),
+      carbohydrates: numField(json['carbohydrates']),
+      sugars: numField(json['sugars']),
+      fat: numField(json['fat']),
+      saturatedFat: numField(json['saturatedFat']),
+      transFat: numField(json['transFat']),
+      fiber: numField(json['fiber']),
+      sodium: numField(json['sodium']),
+    );
+  }
+}
+
+class LabelPhotoAnalysis {
+  const LabelPhotoAnalysis({
+    required this.confidence,
+    this.productName,
+    this.brand,
+    this.category,
+    this.ingredients = const [],
+    this.allergens = const [],
+    this.nutritionPanel,
+    this.healthFlags = const [],
+    this.summary,
+    this.warnings = const [],
+  });
+
+  final String? productName;
+  final String? brand;
+  final String? category;
+  final List<String> ingredients;
+  final List<String> allergens;
+  final LabelPhotoNutritionPanel? nutritionPanel;
+  final List<String> healthFlags;
+  final String? summary;
+  final double confidence;
+  final List<String> warnings;
+
+  bool get hasContent =>
+      (productName != null && productName!.trim().isNotEmpty) ||
+      ingredients.isNotEmpty ||
+      (nutritionPanel != null && !nutritionPanel!.isEmpty);
+
+  factory LabelPhotoAnalysis.fromJson(Map<String, dynamic> json) {
+    List<String> strList(dynamic v) => (v is List)
+        ? v.whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        : const [];
+
+    final conf = json['confidence'];
+    final nutrition = json['nutritionPanel'];
+    return LabelPhotoAnalysis(
+      productName: (json['productName'] as String?)?.trim(),
+      brand: (json['brand'] as String?)?.trim(),
+      category: (json['category'] as String?)?.trim(),
+      ingredients: strList(json['ingredients']),
+      allergens: strList(json['allergens']),
+      nutritionPanel: nutrition is Map<String, dynamic>
+          ? LabelPhotoNutritionPanel.fromJson(nutrition)
+          : null,
+      healthFlags: strList(json['healthFlags']),
+      summary: (json['summary'] as String?)?.trim(),
+      confidence: conf is num ? conf.toDouble() : 0.0,
+      warnings: strList(json['warnings']),
+    );
+  }
+}
+
 // ─── BE-41 — `GET /api/v1/products/:ean/alternatives` ────────────────────
 //
 // Each item is a healthier candidate in the same category as the source

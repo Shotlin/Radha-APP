@@ -719,33 +719,51 @@ class LabelFieldExtractor {
       r'MILLIGRAMS?|MILLILIT(?:RE|ER)S?|MG|ML|GRAMS?|G';
   static const String _energyUnit = r'KILOCALORIES?|CALORIES?|KCAL|K?CAL';
 
+  // Value span accepts the OCR-confusable letters (O→0, S→5, I/l/|→1,
+  // B→8, Z→2) in place of digits, then [normalizeOcrDigits] repairs them
+  // before parsing — the same recovery the DATE extractor already relies on.
+  // Without this, a curved-bottle read of "PROTEIN 0 g" as "PROTEIN O g"
+  // (or "11.5" as "11.S") silently failed `tryParse` and dropped the whole
+  // nutrient, which is exactly why the auto nutrition table came up empty.
+  // Value span: MUST start with an actual digit [0-9] to prevent trailing
+  // letters in keyword matches (FAT**S**, SUGAR**S**) from being parsed as
+  // numbers (S→5).  Subsequent characters may be OCR-confused letters so
+  // that "4S"→45 and "11.S"→11.5 still work after [normalizeOcrDigits].
+  static const String _nutrientValueClass = r'[0-9][0-9OoSsIl|BZ]*(?:\.[0-9OoSsIl|BZ]+)?';
+
   static final Map<String, RegExp> _nutrientPatterns = {
     'energy': RegExp(
-      r'(?:ENERGY|CALORIES)[:\s]+(\d+(?:\.\d+)?)\s*(' '$_energyUnit' r')?',
+      r'(?:ENER\s*GY|CAL\s*ORIES)[:\s]*('
+          '$_nutrientValueClass' r')\s*(' '$_energyUnit' r')?',
       caseSensitive: false,
     ),
     'protein': RegExp(
-      r'PROTEINS?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'PROTEINS?[:\s]*(' '$_nutrientValueClass' r')\s*(' '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'fat': RegExp(
-      r'(?:TOTAL\s*FAT|FAT)[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'(?:TOTAL\s*FAT|FAT)[:\s]*(' '$_nutrientValueClass' r')\s*('
+          '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'carbohydrate': RegExp(
-      r'CARBOHYDRATES?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'CARBOHYDRATES?[:\s]*(' '$_nutrientValueClass' r')\s*('
+          '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'sugar': RegExp(
-      r'SUGARS?[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'(?:ADDED\s*)?SUGARS?[:\s]*(' '$_nutrientValueClass' r')\s*('
+          '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'sodium': RegExp(
-      r'SODIUM[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'(?:SO\s*[OD]IUM|SOO[ID]IUM|SODIUM)[:\s]*(' '$_nutrientValueClass'
+          r')\s*(' '$_massUnit' r')?',
       caseSensitive: false,
     ),
     'potassium': RegExp(
-      r'POTASSIUM[:\s]+(\d+(?:\.\d+)?)\s*(' '$_massUnit' r')?',
+      r'POTASSIUM[:\s]*(' '$_nutrientValueClass' r')\s*(' '$_massUnit'
+          r')?',
       caseSensitive: false,
     ),
   };
@@ -778,34 +796,248 @@ class LabelFieldExtractor {
   static bool _isPlausibleNutrientValue(String key, double value, String unit) {
     if (key == 'energy') return value >= 0 && value <= 900;
     // Every other tracked nutrient is reported per 100g/100ml — its own
-    // gram-equivalent value can never exceed that 100-unit basis. This
-    // catches OCR digit-corruption (e.g. a garbled "115g" or "1159g")
-    // even when it lands on the nutrient's own correct line.
+    // gram-equivalent value can never reach 100 (that's the basis itself,
+    // not a nutrient amount).  Using < 100 (not <=) also excludes the
+    // "PER 100 G/ML" header line that OCR frequently picks up as a
+    // standalone "100" number.
     final asGrams = unit == 'mg' ? value / 1000 : value;
-    return asGrams >= 0 && asGrams <= 100;
+    return asGrams >= 0 && asGrams < 100;
+  }
+
+  /// Standard nutrient ordering on Indian FSSAI labels. Used for positional
+  /// inference when OCR garbles a keyword beyond regex recognition but the
+  /// value (number) is still readable on an adjacent line.
+  static const List<String> _standardNutrientOrder = [
+    'energy', 'protein', 'carbohydrate', 'sugar', 'fat', 'sodium',
+  ];
+
+  /// Maps OCR-corrupted keyword fragments back to canonical nutrient keys.
+  /// Keys are uppercased, spaces stripped — applied AFTER the same
+  /// compaction the line-scoped pass uses.
+  static final Map<RegExp, String> _fuzzyKeywordPatterns = {
+    // ENERGY: OCR often reads C for G → ENERCY
+    RegExp(r'ENERC[GY]'): 'energy',
+    RegExp(r'CALOR[IE]S'): 'energy',
+    RegExp(r'K?CAL'): 'energy',
+    // PROTEIN
+    RegExp(r'PROTEI[N]'): 'protein',
+    RegExp(r'PROT[EI]N'): 'protein',
+    // CARBOHYDRATE: OCR reads G for B → CARGOHYDRATE
+    RegExp(r'CARBOH[YE]D[RA]TE'): 'carbohydrate',
+    RegExp(r'CARB[O0]H[YE]DR[AT]E'): 'carbohydrate',
+    RegExp(r'CAR[GB][OH]H[YE]DR[AT]E'): 'carbohydrate',
+    // SUGAR / TOTAL SUGARS / ADDED SUGARS
+    RegExp(r'SUGA[RS]'): 'sugar',
+    RegExp(r'SU[KG]AR[RS]'): 'sugar',
+    // FAT
+    RegExp(r'TOTAL\s*FA[KT]'): 'fat',
+    RegExp(r'FA[KT]'): 'fat',
+    // SODIUM: severely corrupted readings (SMJM, SODIUM, SOOIUM, etc.)
+    RegExp(r'S[O0D][I1L][U]?[M]'): 'sodium',
+    RegExp(r'SM[JM]M'): 'sodium',
+    RegExp(r'S[O0]DIU[M]'): 'sodium',
+  };
+
+  /// Tries to match [text] (already uppercased, spaces stripped) against
+  /// the fuzzy keyword patterns.  Returns the canonical nutrient key or
+  /// null.
+  static String? _fuzzyNutrientKey(String compact) {
+    for (final entry in _fuzzyKeywordPatterns.entries) {
+      if (entry.key.hasMatch(compact)) return entry.value;
+    }
+    return null;
+  }
+
+  /// Minimal Levenshtein distance — used only as a last-resort keyword
+  /// check when fuzzy regex patterns don't fire.
+  static int _levenshtein(String a, String b) {
+    final m = a.length, n = b.length;
+    final dp = List.generate(m + 1, (i) => List<int>.filled(n + 1, 0));
+    for (var i = 0; i <= m; i++) dp[i][0] = i;
+    for (var j = 0; j <= n; j++) dp[0][j] = j;
+    for (var i = 1; i <= m; i++) {
+      for (var j = 1; j <= n; j++) {
+        final cost = a[i - 1] == b[j - 1] ? 0 : 1;
+        dp[i][j] = [
+          dp[i - 1][j] + 1,
+          dp[i][j - 1] + 1,
+          dp[i - 1][j - 1] + cost,
+        ].reduce((a, b) => a < b ? a : b);
+      }
+    }
+    return dp[m][n];
+  }
+
+  /// Known nutrient keywords for Levenshtein fallback.
+  static final Map<String, String> _canonicalKeywords = {
+    'energy': 'ENERGY',
+    'protein': 'PROTEIN',
+    'carbohydrate': 'CARBOHYDRATE',
+    'sugar': 'SUGAR',
+    'fat': 'FAT',
+    'sodium': 'SODIUM',
+  };
+
+  /// Extracts the leading numeric portion from [text], applying OCR-digit
+  /// recovery.  Returns `(value, unit)` or null.
+  /// The match MUST start with an actual digit `[0-9]` — not an
+  /// OCR-confused letter (O, S, I, l, B, Z).  This prevents single
+  /// letters inside words from being parsed as numbers (e.g. "O" in
+  /// "CARGOHYDRATE" → 0, "S" in "SMJM" → 5, "IO" in "IONAL" → 10),
+  /// which was the dominant source of wrong nutrition values on
+  /// curved-bottle labels.  The trailing OCR-confused characters ARE
+  /// accepted so that "4S" → 45, "11.S" → 11.5 still work.
+  static ({double value, String unit})? _parseNumber(String text, String nutrientKey) {
+    final m = RegExp(r'(?:^|[^A-Z])([0-9][0-9OoSsIl|BZ]*(?:\.[0-9OoSsIl|BZ]+)?)'
+            r'\s*(MG|G|ML|KCAL|KILOCALORIES?|CALORIES?)?')
+        .firstMatch(text);
+    if (m == null) return null;
+    final repaired = normalizeOcrDigits(m.group(1)!) ?? m.group(1)!;
+    final value = double.tryParse(repaired);
+    if (value == null) return null;
+    final unit = _normalizeUnit(m.group(2), nutrientKey);
+    if (!_isPlausibleNutrientValue(nutrientKey, value, unit)) return null;
+    return (value: value, unit: unit);
   }
 
   static FieldCandidate? _extractNutrition(String text) {
     final lines = text.split('\n');
     final found = <String, String>{};
+
+    // ── Pass 1: Line-scoped exact matching (fast, handles clean OCR) ──
     for (final entry in _nutrientPatterns.entries) {
       for (final line in lines) {
-        final m = entry.value.firstMatch(line);
+        final compact = line.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+        final m = entry.value.firstMatch(compact);
         if (m == null) continue;
         final rawValue = m.group(1)!;
-        final value = double.tryParse(rawValue);
+        final repaired = normalizeOcrDigits(rawValue) ?? rawValue;
+        final value = double.tryParse(repaired);
         if (value == null) continue;
-        final unit = _normalizeUnit(m.groupCount >= 2 ? m.group(2) : null, entry.key);
+        final unit =
+            _normalizeUnit(m.groupCount >= 2 ? m.group(2) : null, entry.key);
         if (!_isPlausibleNutrientValue(entry.key, value, unit)) continue;
-        found[entry.key] = '$rawValue$unit';
+        final display = value.truncateToDouble() == value
+            ? value.toInt().toString()
+            : value.toString();
+        found[entry.key] = '$display$unit';
         break;
       }
     }
+
+    // If Pass 1 found ≥ 4 nutrients the table is probably readable; skip
+    // the expensive fuzzy / cross-line passes.
+    if (found.length >= 4) {
+      return _encodeNutrition(found);
+    }
+
+    // ── Pass 2: Fuzzy keyword matching per line ────────────────────────
+    // Builds a map of nutrient-key → (line-index, line-text) for every
+    // line where a fuzzy keyword was recognised, even if no value was on
+    // the same line.
+    final Map<String, ({int index, String line})> fuzzyKeywords = {};
+    final Map<int, ({double value, String unit})?> orphanNumbers = {};
+
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i];
+      final compact = line.replaceAll(RegExp(r'\s+'), '').toUpperCase();
+      if (compact.isEmpty) continue;
+
+      final nutrientKey = _fuzzyNutrientKey(compact);
+
+      // Also try Levenshtein ≤ 2 against canonical keywords as a
+      // last resort for very severely garbled readings (SMJM, etc.).
+      String? matchedKey = nutrientKey;
+      if (matchedKey == null && compact.length >= 3) {
+        for (final entry in _canonicalKeywords.entries) {
+          if (_levenshtein(compact, entry.value) <= 2) {
+            matchedKey = entry.key;
+            break;
+          }
+        }
+      }
+
+      if (matchedKey != null && !found.containsKey(matchedKey)) {
+        // Check if there's a value on THIS line (same-line match)
+        final parsed = _parseNumber(line, matchedKey);
+        if (parsed != null) {
+          final display = parsed.value.truncateToDouble() == parsed.value
+              ? parsed.value.toInt().toString()
+              : parsed.value.toString();
+          found[matchedKey] = '$display${parsed.unit}';
+        } else {
+          fuzzyKeywords[matchedKey] = (index: i, line: line);
+        }
+      } else if (nutrientKey == null) {
+        // Line has no keyword — check if it's a standalone number
+        final parsed = _parseNumber(line, '');
+        if (parsed != null) {
+          orphanNumbers[i] = parsed;
+        }
+      }
+    }
+
+    // ── Pass 3: Cross-line value association ───────────────────────────
+    // Keywords and values are on SEPARATE lines (confirmed on I2217:
+    // "ENERCY" on one line, "46 kca" on the line above). Match them
+    // using the STANDARD TABLE ORDER rather than line proximity, because
+    // OCR on a curved bottle fragments the table so badly that numbers
+    // cluster together while keywords scatter — proximity matching picks
+    // the wrong number every time.
+    if (fuzzyKeywords.isNotEmpty && orphanNumbers.isNotEmpty) {
+      // Collect orphan numbers in line order
+      final sortedOrphans = orphanNumbers.entries
+          .where((e) => e.value != null)
+          .toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      final orphanValues =
+          sortedOrphans.map((e) => e.value!).toList();
+
+      // Assign orphan numbers to fuzzy keywords in standard table order.
+      // First orphan number → first nutrient in table order, etc.
+      var orphanIdx = 0;
+      for (final nutrientKey in _standardNutrientOrder) {
+        if (found.containsKey(nutrientKey)) continue;
+        if (!fuzzyKeywords.containsKey(nutrientKey)) continue;
+        if (orphanIdx >= orphanValues.length) break;
+        final parsed = orphanValues[orphanIdx++];
+        final display = parsed.value.truncateToDouble() == parsed.value
+            ? parsed.value.toInt().toString()
+            : parsed.value.toString();
+        found[nutrientKey] = '$display${parsed.unit}';
+      }
+    }
+
+    // ── Pass 4: Positional inference ───────────────────────────────────
+    // If we have at least 2 confirmed nutrients and orphan numbers
+    // remain, use the standard Indian FSSAI table order to assign them.
+    if (found.length >= 2) {
+      final unmatchedKeys = _standardNutrientOrder
+          .where((k) => !found.containsKey(k))
+          .toList();
+      final remainingNumbers = orphanNumbers.entries
+          .where((e) => e.value != null)
+          .toList()
+        ..sort((a, b) => a.key.compareTo(b.key)); // by line index
+
+      for (var ni = 0;
+          ni < unmatchedKeys.length && ni < remainingNumbers.length;
+          ni++) {
+        final parsed = remainingNumbers[ni].value!;
+        final display = parsed.value.truncateToDouble() == parsed.value
+            ? parsed.value.toInt().toString()
+            : parsed.value.toString();
+        found[unmatchedKeys[ni]] = '$display${parsed.unit}';
+      }
+    }
+
     if (found.isEmpty) return null;
-    // Encode as "key=value;key=value" so it fits the single-string
-    // FieldCandidate.value contract the consensus aggregator compares on —
-    // the scanner screen decodes this back into a map for display/accept.
-    final encoded = (found.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
+    return _encodeNutrition(found);
+  }
+
+  static FieldCandidate _encodeNutrition(Map<String, String> found) {
+    final encoded = (found.entries.toList()
+              ..sort((a, b) => a.key.compareTo(b.key)))
         .map((e) => '${e.key}=${e.value}')
         .join(';');
     return FieldCandidate(

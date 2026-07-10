@@ -28,6 +28,7 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/recall/recall_alerts_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/saved_products/saved_products_screen.dart';
+import '../../features/scan/batch_scan_screen.dart';
 import '../../features/scan/ean_audit_screen.dart';
 import '../../features/scan/label_scan_screen.dart';
 import '../../features/scan/scan_result_screen.dart';
@@ -76,6 +77,8 @@ class AppRoute {
   static const String eanAudit = '/scan/audit';
   // Scanner-OCR fallback: read a product's label when the barcode misses.
   static const String labelScan = '/scan/label';
+  // Batch-aware crowd-sourced expiry scanner (Phase 9 / Feature B).
+  static const String batchScan = '/scan/batch';
   static const String expiry = '/expiry';
   static const String expiryNew = '/expiry/new';
   static const String tasks = '/tasks';
@@ -354,6 +357,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'labelScan',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const LabelScanScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.batchScan,
+        name: 'batchScan',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => const BatchScanScreen(),
       ),
       GoRoute(
         path: AppRoute.expiryNew,

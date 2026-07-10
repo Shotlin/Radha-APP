@@ -43,6 +43,7 @@ dependencies:
   # Camera + on-device ML
   mobile_scanner: ^5.2.3
   google_mlkit_text_recognition: ^0.13.1
+  google_mlkit_barcode_scanning: ^0.12.0
   # Live-preview camera for auto-capture-when-steady label scanning.
   camera: ^0.11.0
 

@@ -237,12 +237,17 @@ void main() {
       },
     );
 
-    test('a plausible value right at the 100g boundary is accepted', () {
-      final result = LabelFieldExtractor.extract('CARBOHYDRATE 100G');
+    test('a plausible value just below the 100g boundary is accepted', () {
+      final result = LabelFieldExtractor.extract('CARBOHYDRATE 99G');
       final decoded = LabelFieldExtractor.decodeNutrition(
         result.byField[LabelField.nutrition]!.value,
       );
-      expect(decoded['carbohydrate'], '100g');
+      expect(decoded['carbohydrate'], '99g');
+    });
+
+    test('exactly 100g is rejected as a PER-100 header, not a nutrient value', () {
+      final result = LabelFieldExtractor.extract('CARBOHYDRATE 100G');
+      expect(result.byField[LabelField.nutrition], isNull);
     });
 
     test('sodium in mg is bounds-checked in gram-equivalent, not raw mg', () {

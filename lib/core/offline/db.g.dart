@@ -98,6 +98,17 @@ class $PendingWritesTable extends PendingWrites
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _idempotencyKeyMeta = const VerificationMeta(
+    'idempotencyKey',
+  );
+  @override
+  late final GeneratedColumn<String> idempotencyKey = GeneratedColumn<String>(
+    'idempotency_key',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -108,6 +119,7 @@ class $PendingWritesTable extends PendingWrites
     retryCount,
     lastError,
     nextRetryAt,
+    idempotencyKey,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -177,6 +189,15 @@ class $PendingWritesTable extends PendingWrites
         ),
       );
     }
+    if (data.containsKey('idempotency_key')) {
+      context.handle(
+        _idempotencyKeyMeta,
+        idempotencyKey.isAcceptableOrUnknown(
+          data['idempotency_key']!,
+          _idempotencyKeyMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -218,6 +239,10 @@ class $PendingWritesTable extends PendingWrites
         DriftSqlType.int,
         data['${effectivePrefix}next_retry_at'],
       ),
+      idempotencyKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}idempotency_key'],
+      ),
     );
   }
 
@@ -256,6 +281,11 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
   /// `null` means "ready immediately" (the value at enqueue time, before
   /// the first failure).
   final int? nextRetryAt;
+
+  /// UUID sent as `Idempotency-Key` header on every retry so the server
+  /// de-duplicates duplicate network-retry writes (Phase 8 idempotency_records
+  /// table). Null for writes that pre-date Phase 9 or don't need idempotency.
+  final String? idempotencyKey;
   const PendingWrite({
     required this.id,
     required this.endpoint,
@@ -265,6 +295,7 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
     required this.retryCount,
     this.lastError,
     this.nextRetryAt,
+    this.idempotencyKey,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -280,6 +311,9 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
     }
     if (!nullToAbsent || nextRetryAt != null) {
       map['next_retry_at'] = Variable<int>(nextRetryAt);
+    }
+    if (!nullToAbsent || idempotencyKey != null) {
+      map['idempotency_key'] = Variable<String>(idempotencyKey);
     }
     return map;
   }
@@ -298,6 +332,9 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
       nextRetryAt: nextRetryAt == null && nullToAbsent
           ? const Value.absent()
           : Value(nextRetryAt),
+      idempotencyKey: idempotencyKey == null && nullToAbsent
+          ? const Value.absent()
+          : Value(idempotencyKey),
     );
   }
 
@@ -315,6 +352,7 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
       retryCount: serializer.fromJson<int>(json['retryCount']),
       lastError: serializer.fromJson<String?>(json['lastError']),
       nextRetryAt: serializer.fromJson<int?>(json['nextRetryAt']),
+      idempotencyKey: serializer.fromJson<String?>(json['idempotencyKey']),
     );
   }
   @override
@@ -329,6 +367,7 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
       'retryCount': serializer.toJson<int>(retryCount),
       'lastError': serializer.toJson<String?>(lastError),
       'nextRetryAt': serializer.toJson<int?>(nextRetryAt),
+      'idempotencyKey': serializer.toJson<String?>(idempotencyKey),
     };
   }
 
@@ -341,6 +380,7 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
     int? retryCount,
     Value<String?> lastError = const Value.absent(),
     Value<int?> nextRetryAt = const Value.absent(),
+    Value<String?> idempotencyKey = const Value.absent(),
   }) => PendingWrite(
     id: id ?? this.id,
     endpoint: endpoint ?? this.endpoint,
@@ -350,6 +390,9 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
     retryCount: retryCount ?? this.retryCount,
     lastError: lastError.present ? lastError.value : this.lastError,
     nextRetryAt: nextRetryAt.present ? nextRetryAt.value : this.nextRetryAt,
+    idempotencyKey: idempotencyKey.present
+        ? idempotencyKey.value
+        : this.idempotencyKey,
   );
   PendingWrite copyWithCompanion(PendingWritesCompanion data) {
     return PendingWrite(
@@ -365,6 +408,9 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
       nextRetryAt: data.nextRetryAt.present
           ? data.nextRetryAt.value
           : this.nextRetryAt,
+      idempotencyKey: data.idempotencyKey.present
+          ? data.idempotencyKey.value
+          : this.idempotencyKey,
     );
   }
 
@@ -378,7 +424,8 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
           ..write('createdAt: $createdAt, ')
           ..write('retryCount: $retryCount, ')
           ..write('lastError: $lastError, ')
-          ..write('nextRetryAt: $nextRetryAt')
+          ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('idempotencyKey: $idempotencyKey')
           ..write(')'))
         .toString();
   }
@@ -393,6 +440,7 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
     retryCount,
     lastError,
     nextRetryAt,
+    idempotencyKey,
   );
   @override
   bool operator ==(Object other) =>
@@ -405,7 +453,8 @@ class PendingWrite extends DataClass implements Insertable<PendingWrite> {
           other.createdAt == this.createdAt &&
           other.retryCount == this.retryCount &&
           other.lastError == this.lastError &&
-          other.nextRetryAt == this.nextRetryAt);
+          other.nextRetryAt == this.nextRetryAt &&
+          other.idempotencyKey == this.idempotencyKey);
 }
 
 class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
@@ -417,6 +466,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
   final Value<int> retryCount;
   final Value<String?> lastError;
   final Value<int?> nextRetryAt;
+  final Value<String?> idempotencyKey;
   const PendingWritesCompanion({
     this.id = const Value.absent(),
     this.endpoint = const Value.absent(),
@@ -426,6 +476,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
     this.retryCount = const Value.absent(),
     this.lastError = const Value.absent(),
     this.nextRetryAt = const Value.absent(),
+    this.idempotencyKey = const Value.absent(),
   });
   PendingWritesCompanion.insert({
     this.id = const Value.absent(),
@@ -436,6 +487,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
     this.retryCount = const Value.absent(),
     this.lastError = const Value.absent(),
     this.nextRetryAt = const Value.absent(),
+    this.idempotencyKey = const Value.absent(),
   }) : endpoint = Value(endpoint),
        method = Value(method),
        bodyJson = Value(bodyJson),
@@ -449,6 +501,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
     Expression<int>? retryCount,
     Expression<String>? lastError,
     Expression<int>? nextRetryAt,
+    Expression<String>? idempotencyKey,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -459,6 +512,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
       if (retryCount != null) 'retry_count': retryCount,
       if (lastError != null) 'last_error': lastError,
       if (nextRetryAt != null) 'next_retry_at': nextRetryAt,
+      if (idempotencyKey != null) 'idempotency_key': idempotencyKey,
     });
   }
 
@@ -471,6 +525,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
     Value<int>? retryCount,
     Value<String?>? lastError,
     Value<int?>? nextRetryAt,
+    Value<String?>? idempotencyKey,
   }) {
     return PendingWritesCompanion(
       id: id ?? this.id,
@@ -481,6 +536,7 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
       retryCount: retryCount ?? this.retryCount,
       lastError: lastError ?? this.lastError,
       nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      idempotencyKey: idempotencyKey ?? this.idempotencyKey,
     );
   }
 
@@ -511,6 +567,9 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
     if (nextRetryAt.present) {
       map['next_retry_at'] = Variable<int>(nextRetryAt.value);
     }
+    if (idempotencyKey.present) {
+      map['idempotency_key'] = Variable<String>(idempotencyKey.value);
+    }
     return map;
   }
 
@@ -524,7 +583,8 @@ class PendingWritesCompanion extends UpdateCompanion<PendingWrite> {
           ..write('createdAt: $createdAt, ')
           ..write('retryCount: $retryCount, ')
           ..write('lastError: $lastError, ')
-          ..write('nextRetryAt: $nextRetryAt')
+          ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('idempotencyKey: $idempotencyKey')
           ..write(')'))
         .toString();
   }
@@ -824,6 +884,7 @@ typedef $$PendingWritesTableCreateCompanionBuilder =
       Value<int> retryCount,
       Value<String?> lastError,
       Value<int?> nextRetryAt,
+      Value<String?> idempotencyKey,
     });
 typedef $$PendingWritesTableUpdateCompanionBuilder =
     PendingWritesCompanion Function({
@@ -835,6 +896,7 @@ typedef $$PendingWritesTableUpdateCompanionBuilder =
       Value<int> retryCount,
       Value<String?> lastError,
       Value<int?> nextRetryAt,
+      Value<String?> idempotencyKey,
     });
 
 class $$PendingWritesTableFilterComposer
@@ -883,6 +945,11 @@ class $$PendingWritesTableFilterComposer
 
   ColumnFilters<int> get nextRetryAt => $composableBuilder(
     column: $table.nextRetryAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -935,6 +1002,11 @@ class $$PendingWritesTableOrderingComposer
     column: $table.nextRetryAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$PendingWritesTableAnnotationComposer
@@ -971,6 +1043,11 @@ class $$PendingWritesTableAnnotationComposer
 
   GeneratedColumn<int> get nextRetryAt => $composableBuilder(
     column: $table.nextRetryAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get idempotencyKey => $composableBuilder(
+    column: $table.idempotencyKey,
     builder: (column) => column,
   );
 }
@@ -1016,6 +1093,7 @@ class $$PendingWritesTableTableManager
                 Value<int> retryCount = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
                 Value<int?> nextRetryAt = const Value.absent(),
+                Value<String?> idempotencyKey = const Value.absent(),
               }) => PendingWritesCompanion(
                 id: id,
                 endpoint: endpoint,
@@ -1025,6 +1103,7 @@ class $$PendingWritesTableTableManager
                 retryCount: retryCount,
                 lastError: lastError,
                 nextRetryAt: nextRetryAt,
+                idempotencyKey: idempotencyKey,
               ),
           createCompanionCallback:
               ({
@@ -1036,6 +1115,7 @@ class $$PendingWritesTableTableManager
                 Value<int> retryCount = const Value.absent(),
                 Value<String?> lastError = const Value.absent(),
                 Value<int?> nextRetryAt = const Value.absent(),
+                Value<String?> idempotencyKey = const Value.absent(),
               }) => PendingWritesCompanion.insert(
                 id: id,
                 endpoint: endpoint,
@@ -1045,6 +1125,7 @@ class $$PendingWritesTableTableManager
                 retryCount: retryCount,
                 lastError: lastError,
                 nextRetryAt: nextRetryAt,
+                idempotencyKey: idempotencyKey,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

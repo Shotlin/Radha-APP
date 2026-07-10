@@ -1,5 +1,7 @@
 import 'dart:io' show Platform;
 
+import 'package:uuid/uuid.dart';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -14,9 +16,8 @@ import '../../core/offline/sync_service.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../l10n/generated/app_localizations.dart';
-import '../scan/domain/label_field_models.dart';
+import 'date_scanner_screen.dart';
 import 'ean_picker_screen.dart';
-import 'ocr_date_helper.dart';
 
 // ─────────────────────────────────────────────────────────────────
 // Total wizard steps.
@@ -205,30 +206,24 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
 
   // ── Step 2 & 3: Dates ────────────────────────────────────────────
 
-  Future<void> _scanDates() async {
-    final result = await OcrDateHelper.extractDates(context, ref);
-    if (result == null || !mounted) return;
+  Future<void> _scanExpiry() async {
+    final date = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(
+        builder: (_) => const DateScannerScreen(mode: DateScanMode.expiry),
+      ),
+    );
+    if (date == null || !mounted) return;
+    setState(() => _expiryDate = date);
+  }
 
-    setState(() {
-      if (result.expiryDate != null) _expiryDate = result.expiryDate;
-      if (result.mfgDate != null) _mfgDate = result.mfgDate;
-      if (result.batchNumber != null &&
-          _batchController.text.trim().isEmpty) {
-        _batchController.text = result.batchNumber!;
-      }
-    });
-
-    final expiryConf =
-        result.fieldConfidence[LabelField.expiryDate];
-    if (expiryConf != null && expiryConf < 0.8 && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Scanned date accepted at moderate confidence — please double-check.',
-          ),
-        ),
-      );
-    }
+  Future<void> _scanMfg() async {
+    final date = await Navigator.of(context).push<DateTime>(
+      MaterialPageRoute(
+        builder: (_) => const DateScannerScreen(mode: DateScanMode.mfg),
+      ),
+    );
+    if (date == null || !mounted) return;
+    setState(() => _mfgDate = date);
   }
 
   Future<void> _pickDate({required bool isMfg}) async {
@@ -271,14 +266,13 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
 
     setState(() => _submitting = true);
 
-    final storeId =
-        ref.read(currentUserProvider)?.selectedStoreId ?? '';
+    final storeId = ref.read(currentUserProvider)?.selectedStoreId;
     final productId = _resolvedProductId ?? _eanController.text.trim();
 
     try {
       final dto = CreateExpiryDto(
         productId: productId,
-        storeId: storeId,
+        storeId: storeId ?? '',
         expiryDate:
             _expiryDate!.toIso8601String().split('T').first,
         manufactureDate:
@@ -299,6 +293,11 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
             endpoint: '/api/v1/expiry-records',
             method: 'POST',
             body: dto.toJson(),
+            // Stable key for this create attempt — prevents a duplicate
+            // record if the user taps Submit while offline and the outbox
+            // retries when connectivity returns (server de-dupes via the
+            // Phase 8 idempotency_records table).
+            idempotencyKey: const Uuid().v4(),
           );
 
       if (!mounted) return;
@@ -399,6 +398,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
           title: 'Expiry Date',
           subtitle: 'Required — when does this product expire?',
           date: _expiryDate,
+          onScan: _canUseCamera ? _scanExpiry : null,
           onNext: _expiryDate != null ? _advance : null,
           onSkip: null,
         );
@@ -409,8 +409,9 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
           title: 'Manufacturing Date',
           subtitle: 'Optional — when was this product made?',
           date: _mfgDate,
+          onScan: _canUseCamera ? _scanMfg : null,
           onNext: _advance,
-          onSkip: _advance, // always skippable
+          onSkip: _advance,
         );
       case _kStepExtras:
         return _buildExtrasStep(context);
@@ -584,6 +585,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
     required String title,
     required String subtitle,
     required DateTime? date,
+    required VoidCallback? onScan,
     required VoidCallback? onNext,
     required VoidCallback? onSkip,
   }) {
@@ -606,12 +608,16 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
           const SizedBox(height: RadhaSpacing.space24),
 
           // OCR scan card (mobile only).
-          if (_canUseCamera) ...[
+          if (onScan != null) ...[
             _ActionCard(
               icon: Icons.document_scanner_outlined,
-              title: 'Scan the date off the pack',
-              subtitle: "We'll read MFG / EXP for you",
-              onTap: _scanDates,
+              title: isMfg
+                  ? 'Scan manufacturing date'
+                  : 'Scan expiry date',
+              subtitle: isMfg
+                  ? "Point at the MFD/MFG date on the pack"
+                  : "Point at the EXP/BBE date on the pack",
+              onTap: onScan,
             ),
             const SizedBox(height: RadhaSpacing.space20),
             Row(children: [

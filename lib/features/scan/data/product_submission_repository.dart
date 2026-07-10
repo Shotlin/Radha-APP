@@ -19,6 +19,17 @@ import 'package:radha_app/core/network/dto/product_submission_dto.dart';
 ///      envelope, so none of [dioProvider]'s interceptors apply here.
 ///   3. `apiClient.confirmSubmissionPhoto` — authenticated call marking the
 ///      upload complete server-side.
+/// Result of an early (pre-submit) photo upload — carries both the
+/// `mediaId` (what the vision-analysis endpoint needs) and the `s3Key`
+/// (what the final `/products/learn` submission needs), so the SAME
+/// upload can serve both without a second round-trip.
+class UploadedPhoto {
+  const UploadedPhoto({required this.mediaId, required this.s3Key});
+
+  final String mediaId;
+  final String s3Key;
+}
+
 class ProductSubmissionRepository {
   ProductSubmissionRepository(this._apiClient);
 
@@ -26,6 +37,13 @@ class ProductSubmissionRepository {
 
   /// Uploads [photo] (if provided) and submits the product. Returns the
   /// created (pending-review) submission.
+  ///
+  /// If the caller already uploaded the photo earlier (e.g. right after
+  /// capture, to kick off a cloud analysis pass without waiting for the
+  /// whole wizard — see `uploadPhotoEarly`), pass it as [alreadyUploaded]
+  /// so this doesn't upload the same bytes a second time. Only falls back
+  /// to uploading [photo] itself when [alreadyUploaded] is null (e.g. the
+  /// user retook the photo after the early upload already happened).
   Future<SubmissionResponseDto> submit({
     required String ean,
     String? name,
@@ -34,10 +52,11 @@ class ProductSubmissionRepository {
     String? ingredients,
     NutritionPanelPayload? nutrition,
     File? photo,
+    UploadedPhoto? alreadyUploaded,
   }) async {
-    String? s3Key;
-    if (photo != null) {
-      s3Key = await _uploadPhoto(photo);
+    String? s3Key = alreadyUploaded?.s3Key;
+    if (s3Key == null && photo != null) {
+      s3Key = (await uploadPhotoEarly(photo)).s3Key;
     }
 
     return _apiClient.submitProduct(
@@ -55,7 +74,11 @@ class ProductSubmissionRepository {
     );
   }
 
-  Future<String> _uploadPhoto(File photo) async {
+  /// Runs the presign → S3-POST → confirm dance standalone, callable right
+  /// after capture rather than only at final submit — so a cloud
+  /// photo-analysis pass can start immediately instead of waiting for the
+  /// whole wizard to finish. `submit()` reuses this internally too.
+  Future<UploadedPhoto> uploadPhotoEarly(File photo) async {
     final bytes = await photo.readAsBytes();
 
     final presign = await _apiClient.presignSubmissionPhoto(
@@ -86,7 +109,7 @@ class ProductSubmissionRepository {
     await Dio().post<void>(presign.uploadUrl, data: form);
 
     final confirmed = await _apiClient.confirmSubmissionPhoto(presign.mediaId);
-    return confirmed.s3Key;
+    return UploadedPhoto(mediaId: presign.mediaId, s3Key: confirmed.s3Key);
   }
 }
 

@@ -151,6 +151,10 @@ class SyncService {
     required String method,
     required Map<String, dynamic> body,
     T Function(Map<String, dynamic> json)? parser,
+    // When supplied, sent as `Idempotency-Key` header on the live request AND
+    // stored in pending_writes so every retry replays the same key —
+    // preventing duplicate records on network-retry (Phase 9 / Phase 8 server).
+    String? idempotencyKey,
   }) async {
     final upperMethod = method.toUpperCase();
     final encodedBody = jsonEncode(body);
@@ -158,17 +162,23 @@ class SyncService {
     // 1. Check connectivity. If we're offline, skip the network round-trip
     //    entirely and persist the row.
     if (await _isOffline()) {
-      final id = await _persist(endpoint, upperMethod, encodedBody);
+      final id = await _persist(
+        endpoint, upperMethod, encodedBody,
+        idempotencyKey: idempotencyKey,
+      );
       return EnqueueResult<T>(synced: false, queued: true, queueRowId: id);
     }
 
     // 2. Otherwise attempt the request. Handle transient failures by
     //    persisting; let permanent failures throw.
     try {
+      final headers = idempotencyKey != null
+          ? {'Idempotency-Key': idempotencyKey}
+          : null;
       final response = await _dio.request<dynamic>(
         endpoint,
         data: body,
-        options: Options(method: upperMethod),
+        options: Options(method: upperMethod, headers: headers),
       );
       if (response.statusCode != null &&
           response.statusCode! >= 200 &&
@@ -180,10 +190,9 @@ class SyncService {
       // 5xx-shaped as transient, else surface to the caller.
       if ((response.statusCode ?? 500) >= 500) {
         final id = await _persist(
-          endpoint,
-          upperMethod,
-          encodedBody,
+          endpoint, upperMethod, encodedBody,
           error: 'HTTP ${response.statusCode}',
+          idempotencyKey: idempotencyKey,
         );
         return EnqueueResult<T>(synced: false, queued: true, queueRowId: id);
       }
@@ -196,10 +205,9 @@ class SyncService {
     } on DioException catch (e) {
       if (_isTransient(e)) {
         final id = await _persist(
-          endpoint,
-          upperMethod,
-          encodedBody,
+          endpoint, upperMethod, encodedBody,
           error: _summariseError(e),
+          idempotencyKey: idempotencyKey,
         );
         return EnqueueResult<T>(synced: false, queued: true, queueRowId: id);
       }
@@ -208,10 +216,9 @@ class SyncService {
       // Belt-and-braces — Dio normally wraps these in DioException, but we
       // catch it here too in case a custom adapter lets it bubble through.
       final id = await _persist(
-        endpoint,
-        upperMethod,
-        encodedBody,
+        endpoint, upperMethod, encodedBody,
         error: e.message,
+        idempotencyKey: idempotencyKey,
       );
       return EnqueueResult<T>(synced: false, queued: true, queueRowId: id);
     }
@@ -250,6 +257,7 @@ class SyncService {
     String method,
     String body, {
     String? error,
+    String? idempotencyKey,
   }) {
     return _db.enqueueWrite(
       endpoint: endpoint,
@@ -257,6 +265,7 @@ class SyncService {
       bodyJson: body,
       createdAt: _now(),
       lastError: error,
+      idempotencyKey: idempotencyKey,
       // Ready immediately for the queue runner to pick up next time.
       nextRetryAt: null,
       retryCount: 0,
@@ -281,10 +290,13 @@ class SyncService {
     }
 
     try {
+      final headers = row.idempotencyKey != null
+          ? {'Idempotency-Key': row.idempotencyKey}
+          : null;
       final response = await _dio.request<dynamic>(
         row.endpoint,
         data: body,
-        options: Options(method: row.method),
+        options: Options(method: row.method, headers: headers),
       );
       final status = response.statusCode ?? 0;
       if (status >= 200 && status < 300) {
