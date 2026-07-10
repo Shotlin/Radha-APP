@@ -1,122 +1,107 @@
-# RADHA Mobile (Flutter)
+# Radha App
 
-The consumer + staff + manager surface for RADHA. Talks to the NestJS backend (`server/`) via a typed Retrofit client over Dio. Built per `.kiro/specs/radha-platform-design/`.
+Flutter mobile app for the RADHA product-tracking and expiry-management platform.
+Repo: `github.com/Shotlin/Radha-APP`
 
-- **Flutter** 3.44 / **Dart** 3.12
-- **State**: Riverpod 2.5+
-- **Navigation**: GoRouter 14+
-- **HTTP**: Dio 5 + Retrofit 4 + `dio_smart_retry`
-- **Offline**: Drift (SQLite) + `connectivity_plus`
-- **Auth**: `flutter_secure_storage`, OTP via backend `/auth/otp/*`
-- **Camera + OCR**: `mobile_scanner` 5+, `google_mlkit_text_recognition` 0.13+
-- **Theme**: Material 3 + custom design tokens (Plus Jakarta Sans + JetBrains Mono, single emerald accent)
+## Prerequisites
 
-The full backlog and current state is in `.kiro/specs/radha-platform-design/tasks.md` (23 tasks, all complete in this build).
+| Tool | Version |
+|---|---|
+| Flutter | 3.44.x |
+| Dart | 3.12.x |
+| Java | 17 (required by AGP 9) |
 
-## Quick start
+Devices:
+- Emulator: `Pixel_9` AVD (`emulator-5554`)
+- Real device: I2217 (`10BD762MCZ0003A`) — required for camera/OCR/barcode
+  verification (AVD cannot exercise live ML Kit output)
 
-From the workspace root, in one terminal:
+## Run
 
-```cmd
-docker compose up -d        :: Postgres 5433 + Redis 6380
-pnpm install
-pnpm server:dev             :: NestJS API on :3000
+```bash
+# Emulator
+flutter run -d emulator-5554 \
+  --dart-define=API_BASE_URL=https://radha.opslin.com
+
+# Real device
+flutter run -d 10BD762MCZ0003A \
+  --dart-define=API_BASE_URL=https://radha.opslin.com
 ```
 
-In a second terminal, launch the app on Chrome via the convenience script:
+Dev OTP (demo accounts only): **`123456`**
 
-```cmd
-apps\mobile\tool\start_dev.bat
+## Build
+
+```bash
+flutter build apk --debug \
+  --dart-define=API_BASE_URL=https://radha.opslin.com
 ```
 
-That script verifies Docker is up, reminds you to start the backend, and runs:
+## Tests and analysis
 
-```cmd
-flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:3000/api/v1
+Run both before every commit:
+
+```bash
+flutter analyze      # must add zero new issues above baseline
+flutter test         # must stay 148/148 (or more) passing
 ```
 
-For Android emulator the loopback to the host is `10.0.2.2`:
+## Code generation
 
-```cmd
-cd apps\mobile
-flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3000/api/v1
+After editing any `@JsonSerializable`, `@freezed`, `@riverpod`, or `retrofit`
+annotated class:
+
+```bash
+flutter pub run build_runner build --delete-conflicting-outputs
 ```
 
-For iOS simulator (macOS only) `localhost` is shared with the host.
+Never hand-edit `*.g.dart` or `*.freezed.dart` — they are regenerated and will
+be overwritten. Never edit `lib/l10n/generated/` directly.
 
-## Folder layout
+## Key directories
 
-```text
-apps/mobile/
-  lib/
-    core/                     # network, auth, router, offline, entitlements
-    design/                   # tokens, theme, reusable widgets
-    features/                 # one folder per task: splash, onboarding, auth, home,
-                              #   scan, product, expiry, tasks, inventory, grn,
-                              #   subscription, allergen, recall, shopping_list,
-                              #   referrals, settings, sync
-  integration_test/           # auth_flow, scan_flow, expiry_flow + harness
-  test/                       # unit + widget tests (co-located by feature)
-  tool/
-    start_dev.bat             # Windows convenience launcher
-    gen_brand.ps1             # brand-asset generator
-  android/  ios/  web/  windows/   # platform projects
-  pubspec.yaml
+```
+lib/
+  core/
+    auth/            Auth session, OTP login, secure storage, interceptor
+    network/         ApiClient (Retrofit/Dio), DTOs, api_client.g.dart
+    notifications/   PushService (Firebase FCM, graceful-degradation)
+    offline/         SyncService — outbox queue, Drift, connectivity
+    router/          GoRouter app_router.dart
+  features/
+    scan/            ScanScreen (barcode, 3-read consensus),
+                     BatchScanScreen (dual ML Kit),
+                     LiveLabelScannerScreen (OCR date)
+    expiry/          Expiry list + 4-step create wizard
+    auth/            OTP login flow
+    splash/          BootstrapController (cold-start sequence)
+  design/            Theme (radhaLightTheme/radhaDarkTheme), shared widgets
+  l10n/              ARB files; generated/ is auto-generated — never edit
+test/
+  features/scan/domain/   Extractor + aggregator unit tests (must stay green)
+android/
+  app/
+    build.gradle.kts       Razorpay namespace hack + desugar — read the comments
+    libs/                  razorpay-core-1.0.15-patched.aar (vendored)
 ```
 
-## Development commands (from `apps/mobile/`)
+## Push notifications
 
-```cmd
-flutter pub get                                      :: deps
-flutter pub run build_runner build --delete-conflicting-outputs  :: codegen (Retrofit, Drift, Freezed, JSON)
-flutter analyze --fatal-infos                        :: lint
-flutter test                                         :: unit + widget tests
-flutter test integration_test                        :: integration tests
-flutter build web --dart-define=API_BASE_URL=http://localhost:3000/api/v1
-```
+Firebase packages are present but **not yet active** — `PushService` silently
+disables itself if `google-services.json` is absent; the rest of the app runs
+normally. To enable:
 
-## Manual testing
+1. Create Firebase project at `console.firebase.google.com`
+2. Add Android app: package `com.radha.radha_app`
+3. Download `google-services.json` → `android/app/google-services.json`
+4. Add plugin to `android/app/build.gradle.kts` plugins block:
+   `id("com.google.gms.google-services")`
+5. Add to `android/build.gradle` plugins block:
+   `id("com.google.gms.google-services") version "4.4.2" apply false`
+6. Set `FCM_SERVICE_ACCOUNT_JSON` on the EC2 server
 
-End-to-end manual smoke testing is driven through two MCP servers configured at `.kiro/settings/mcp.json`:
+## Razorpay build notes
 
-- `mobile-mcp` — Android emulator, iOS simulator, real devices.
-- `playwright` — Flutter Web in Chromium.
-
-The full per-task checklist with exact taps and expected backend hits lives at:
-
-> [`MOBILE_MANUAL_TEST_CHECKLIST.md`](../../MOBILE_MANUAL_TEST_CHECKLIST.md) (workspace root)
-
-That document covers all 23 tasks with:
-
-- Pre-flight setup (Docker, backend, Chrome / Android emulator / iOS simulator runs).
-- Per-task smoke flow (what to test, expected outcome, backend endpoints hit, MCP recipe).
-- MCP tool usage examples for both servers.
-- Anti-slop visual verification checklist.
-- Known limitations (camera in headless Chrome, push, OCR fallback).
-
-## Automated testing
-
-- **Unit + widget tests**: `flutter test` from `apps/mobile/`. Tests live alongside source (`*_test.dart`).
-- **Integration tests**: `flutter test integration_test/` runs `auth_flow_test.dart`, `scan_flow_test.dart`, `expiry_flow_test.dart`. They use `dio_mock_adapter` so a live backend is not required.
-- **Static analysis**: `flutter analyze --fatal-infos`. Current baseline is **0 issues**.
-
-## Configuration
-
-The single build-time knob is `API_BASE_URL`:
-
-| Target               | Value                                  |
-|----------------------|----------------------------------------|
-| Chrome (web)         | `http://localhost:3000/api/v1`         |
-| Android emulator     | `http://10.0.2.2:3000/api/v1`          |
-| iOS simulator        | `http://localhost:3000/api/v1`         |
-| Real device on LAN   | `http://<host-LAN-ip>:3000/api/v1`     |
-
-Pass it via `--dart-define=API_BASE_URL=...` to `flutter run` or `flutter build`.
-
-## Troubleshooting
-
-- **App stuck on splash** — backend is not reachable. `curl http://localhost:3000/api/v1/health` should return `{"success":true,...}`. On Android emulator confirm you used `10.0.2.2`, not `localhost`.
-- **OTP never arrives** — in dev mode the OTP is `123456` (`OTP_PROVIDER=dev`). Check the server logs for the `[otp.dev]` line.
-- **`flutter analyze` fails** — run `flutter pub run build_runner build --delete-conflicting-outputs` to regenerate Retrofit / Drift / Freezed code, then re-run analyze.
-- **Drift schema errors after editing tables** — same fix: regenerate via build_runner.
-- **MCP server not visible** — confirm `.kiro/settings/mcp.json` (workspace) and `~/.kiro/settings/mcp.json` (user-global) both have `mobile-mcp` and `playwright` entries with `disabled: false`.
+The `build.gradle.kts` comment block explains the AGP 9 namespace-deduplication
+fix in detail. Do not remove the vendored `libs/razorpay-core-1.0.15-patched.aar`
+or the `configurations.all { exclude ... }` block — they are required.
