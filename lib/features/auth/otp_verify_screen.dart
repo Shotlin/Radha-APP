@@ -10,6 +10,7 @@ import 'package:pinput/pinput.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/auth/session_storage.dart';
 import '../../core/network/api_client.dart';
+import '../../core/notifications/push_service.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/dto/onboarding_dto.dart';
 import '../../core/network/error_codes.dart';
@@ -144,6 +145,10 @@ class _OtpVerifyScreenState extends ConsumerState<OtpVerifyScreen> {
           // Segment post failure is non-fatal; fall through to routing logic.
         }
       }
+
+      // Phase 10: register FCM token now that we have an authenticated session.
+      // Fire-and-forget — failure is non-fatal, push just won't work this session.
+      PushService.instance.registerToken(api).ignore();
 
       await Future<void>.delayed(const Duration(milliseconds: 300));
 

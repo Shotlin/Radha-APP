@@ -24,6 +24,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/auth/auth_repository.dart';
+import '../../core/notifications/push_service.dart';
 import '../../core/auth/auth_session.dart';
 import '../../core/auth/session_storage.dart';
 import '../../core/network/api_client.dart';
@@ -137,6 +138,11 @@ class BootstrapController extends AsyncNotifier<BootstrapResult> {
     }
 
     await onboardingFuture;
+
+    // Phase 10: re-register FCM token on session resume (token may have rotated).
+    if (session != null) {
+      PushService.instance.registerToken(ref.read(apiClientProvider)).ignore();
+    }
 
     // Kick the offline-first sync bootstrap. Reading the provider triggers
     // its constructor side-effect, which runs an initial `processQueue()`

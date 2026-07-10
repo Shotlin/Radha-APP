@@ -45,6 +45,9 @@ configurations.all {
 
 dependencies {
     implementation(files("libs/razorpay-core-1.0.15-patched.aar"))
+    // flutter_local_notifications requires Java 8 desugaring for
+    // java.time.* APIs on Android < 26 (minSdk may be 21).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 android {
@@ -53,6 +56,7 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }

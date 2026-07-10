@@ -9,6 +9,7 @@ import 'package:retrofit/retrofit.dart';
 
 import 'package:radha_app/core/network/dio_provider.dart';
 import 'package:radha_app/core/network/dto/ai_dto.dart';
+import 'package:radha_app/core/network/dto/notification_dto.dart';
 import 'package:radha_app/core/network/dto/allergen_profile_dto.dart';
 import 'package:radha_app/core/network/dto/auth_dto.dart';
 import 'package:radha_app/core/network/dto/catalog_dto.dart';
@@ -32,6 +33,7 @@ import 'package:radha_app/core/network/dto/task_dto.dart';
 
 // Re-export auth DTOs so existing imports from this file keep working.
 export 'package:radha_app/core/network/dto/auth_dto.dart';
+export 'package:radha_app/core/network/dto/notification_dto.dart';
 
 part 'api_client.g.dart';
 
@@ -455,6 +457,13 @@ abstract class ApiClient {
 
   @GET('/api/v1/sync/pull')
   Future<SyncPullResponse> syncPull({@Query('since') String? since});
+
+  // ─── FCM device tokens ─────────────────────────────────────────────
+  @POST('/api/v1/notifications/fcm-token')
+  Future<void> registerFcmToken(@Body() RegisterFcmTokenDto body);
+
+  @DELETE('/api/v1/notifications/fcm-token')
+  Future<void> unregisterFcmToken(@Query('token') String token);
 
   // ─── Shopping List ─────────────────────────────────────────────────────
   // Backend: /api/v1/shopping-lists (multi-list per user)

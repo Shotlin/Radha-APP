@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/auth/session_resume_guard.dart';
+import 'core/notifications/push_service.dart';
 import 'core/auth/session_storage.dart';
 import 'core/i18n/locale_controller.dart';
 import 'core/network/token_provider.dart';
@@ -15,11 +16,15 @@ import 'features/splash/bootstrap_controller.dart';
 import 'features/sync/conflict_banner.dart';
 import 'l10n/generated/app_localizations.dart';
 
-void main() {
+void main() async {
   // `ErrorBoundary` installs `ErrorWidget.builder`, `FlutterError.onError`,
   // and `PlatformDispatcher.instance.onError` from its `initState`. Mounting
   // it as the topmost widget guarantees those hooks are in place before any
   // descendant has a chance to throw.
+  WidgetsFlutterBinding.ensureInitialized();
+  // Phase 10: Firebase pre-init. Degrades gracefully if google-services.json
+  // is not yet present (push disabled, rest of app unaffected).
+  await PushService.preInit();
   runApp(
     ProviderScope(
       overrides: [
