@@ -18,6 +18,7 @@ export 'domain/label_field_models.dart' show LiveScanResult;
 import 'dart:async';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -171,7 +172,17 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
       if (!mounted) return;
       final text = recognized.text;
       if (text.trim().isEmpty) return;
-      final candidates = LabelFieldExtractor.extract(text);
+      // The regex field-matching pass is CPU-bound pure Dart that used to
+      // run inline on every frame, competing with widget build/layout/
+      // paint on the same UI thread — disproportionately costly on a
+      // low-end device. LabelFieldExtractor.extract is already a static,
+      // isolate-safe function, so it can be passed to compute() directly
+      // with no wrapper. See frame_extraction_worker.dart (used by the
+      // richer "contribute a product" flow) for the same rationale.
+      final candidates = await compute(LabelFieldExtractor.extract, text);
+      // compute() is itself a genuine suspension point — same disposal
+      // risk as the ML Kit await above.
+      if (!mounted) return;
       if (candidates.isEmpty) return;
       _aggregator.addFrame(candidates);
       final corrections = _aggregator.takeCorrections();
@@ -361,6 +372,24 @@ class _LiveLabelScannerScreenState extends State<LiveLabelScannerScreen>
       return const ColoredBox(
         color: RadhaColors.ink,
         child: Center(
+          child: CircularProgressIndicator(color: RadhaColors.primary),
+        ),
+      );
+    }
+    try {
+      // CameraPreview can throw on some devices if the controller enters an
+      // inconsistent state between initialization and the first build frame.
+      // Wrap so the error boundary only replaces this half rather than the
+      // whole screen — the data panel below stays usable for manual entry.
+      _controller!.value.toString(); // touch value to surface any cached error
+    } catch (e) {
+      // Controller is in a bad state — fall through to the error banner.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _error = 'Camera unavailable. Go back and try again.');
+      });
+      return Container(
+        color: RadhaColors.ink,
+        child: const Center(
           child: CircularProgressIndicator(color: RadhaColors.primary),
         ),
       );

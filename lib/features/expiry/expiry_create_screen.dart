@@ -1,23 +1,39 @@
 import 'dart:io' show Platform;
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/dto/expiry_dto.dart';
 import '../../core/offline/sync_service.dart';
-import '../../design/app_assets.dart';
 import '../../design/tokens.dart';
-import '../../design/widgets/mor_companion.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../scan/domain/label_field_models.dart';
+import 'ean_picker_screen.dart';
 import 'ocr_date_helper.dart';
 
-/// Screen for creating a new expiry record. Supports manual date entry
-/// and an OCR-assisted camera path on mobile platforms.
+// ─────────────────────────────────────────────────────────────────
+// Total wizard steps.
+const int _kSteps = 4;
+
+/// Step index constants (kept as ints so AnimatedSwitcher key is simple).
+const int _kStepProduct = 0;
+const int _kStepExpiry = 1;
+const int _kStepMfg = 2;
+const int _kStepExtras = 3;
+
+/// New-expiry-record wizard.
+///
+/// Step 1 — Product (scan EAN barcode → catalog lookup; or manual EAN + name).
+/// Step 2 — Expiry date (OCR scan from pack or date picker). Required.
+/// Step 3 — Manufacturing date (OCR or date picker). Optional / skippable.
+/// Step 4 — Extra details: batch, quantity, location. All optional. Submit.
 class ExpiryCreateScreen extends ConsumerStatefulWidget {
   const ExpiryCreateScreen({
     super.key,
@@ -26,30 +42,41 @@ class ExpiryCreateScreen extends ConsumerStatefulWidget {
     this.prefillProductName,
   });
 
-  /// Populated when navigated here from a scan result via
-  /// `AppRoute.expiryNew`'s `extra` map — prefills the form instead of
-  /// leaving the user to retype the product they just scanned.
+  /// When navigated here from a scan result, these prefill step 1 so the
+  /// user doesn't re-scan the product they just identified.
   final String? prefillEan;
   final String? prefillProductId;
   final String? prefillProductName;
 
   @override
-  ConsumerState<ExpiryCreateScreen> createState() => _ExpiryCreateScreenState();
+  ConsumerState<ExpiryCreateScreen> createState() =>
+      _ExpiryCreateScreenState();
 }
 
 class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _productIdController = TextEditingController();
+  int _step = _kStepProduct;
+
+  // ── Step 1: Product ─────────────────────────────────────────────
+  final _eanController = TextEditingController();
+  String? _resolvedProductId; // DB id if catalog hit, else raw EAN
+  String? _productName; // from catalog or manual entry
+  bool _productLookupLoading = false;
+  bool _productNotFound = false; // true when API returned 404
+  String? _productLookupError; // non-404 errors shown inline
+  final _manualNameController = TextEditingController();
+
+  // ── Step 2: Expiry date ─────────────────────────────────────────
+  DateTime? _expiryDate;
+
+  // ── Step 3: Manufacturing date ──────────────────────────────────
+  DateTime? _mfgDate;
+
+  // ── Step 4: Extras ──────────────────────────────────────────────
   final _batchController = TextEditingController();
   final _quantityController = TextEditingController();
   final _locationController = TextEditingController();
+  bool _submitting = false;
 
-  DateTime? _mfgDate;
-  DateTime? _expiryDate;
-  String? _dateError;
-  bool _loading = false;
-
-  /// Whether the device supports on-device camera OCR.
   bool get _canUseCamera {
     if (kIsWeb) return false;
     return Platform.isAndroid || Platform.isIOS;
@@ -58,49 +85,164 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   @override
   void initState() {
     super.initState();
-    if (widget.prefillProductId != null) {
-      _productIdController.text = widget.prefillProductId!;
+    // When prefilled from a scan-result route, jump straight to date step.
+    if (widget.prefillProductId != null || widget.prefillEan != null) {
+      _step = _kStepExpiry;
+      _resolvedProductId =
+          widget.prefillProductId ?? widget.prefillEan;
+      _productName = widget.prefillProductName;
+      _productNotFound = widget.prefillProductName == null;
+      _eanController.text =
+          widget.prefillEan ?? widget.prefillProductId ?? '';
     }
   }
 
   @override
   void dispose() {
-    _productIdController.dispose();
+    _eanController.dispose();
+    _manualNameController.dispose();
     _batchController.dispose();
     _quantityController.dispose();
     _locationController.dispose();
     super.dispose();
   }
 
-  void _validateDates() {
-    if (_mfgDate != null &&
-        _expiryDate != null &&
-        _mfgDate!.isAfter(_expiryDate!)) {
-      setState(
-        () => _dateError = AppLocalizations.of(context).exMfgAfterExpiry,
+  // ── Navigation ───────────────────────────────────────────────────
+
+  void _advance() => setState(() => _step++);
+
+  bool _handleBack() {
+    if (_step > _kStepProduct) {
+      setState(() => _step--);
+      return true; // consumed
+    }
+    return false; // let Navigator pop the screen
+  }
+
+  // ── Step 1 logic ─────────────────────────────────────────────────
+
+  Future<void> _scanEan() async {
+    final ean = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const EanPickerScreen()),
+    );
+    if (ean == null || !mounted) return;
+    _eanController.text = ean;
+    await _lookupProduct(ean);
+  }
+
+  Future<void> _lookupProduct(String ean) async {
+    final trimmed = ean.trim();
+    if (trimmed.isEmpty) return;
+
+    setState(() {
+      _productLookupLoading = true;
+      _productLookupError = null;
+      _productNotFound = false;
+      _productName = null;
+      _resolvedProductId = null;
+    });
+
+    try {
+      final api = ref.read(apiClientProvider);
+      final result =
+          await api.getProductLookup(trimmed, includeNutrition: false);
+      if (!mounted) return;
+      if (result.found && result.product != null) {
+        setState(() {
+          _resolvedProductId = result.product!.id;
+          _productName = result.product!.name;
+          _productNotFound = false;
+          _productLookupLoading = false;
+        });
+      } else {
+        // API returned found:false — ask user to supply the name.
+        setState(() {
+          _productNotFound = true;
+          _resolvedProductId = trimmed;
+          _productLookupLoading = false;
+        });
+      }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      final inner = e.error;
+      setState(() {
+        _productLookupError =
+            inner is ApiException ? inner.message : 'Network error — try again';
+        _productLookupLoading = false;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _productLookupError = e.message;
+        _productLookupLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _productLookupError = 'Something went wrong — try again';
+        _productLookupLoading = false;
+      });
+    }
+  }
+
+  bool get _step1CanAdvance {
+    if (_productLookupLoading) return false;
+    if (_resolvedProductId == null) return false;
+    if (_productNotFound && _manualNameController.text.trim().isEmpty) {
+      return false;
+    }
+    return true;
+  }
+
+  void _step1Next() {
+    if (!_step1CanAdvance) return;
+    if (_productNotFound) {
+      // User typed the name manually — store it.
+      _productName = _manualNameController.text.trim();
+    }
+    _advance();
+  }
+
+  // ── Step 2 & 3: Dates ────────────────────────────────────────────
+
+  Future<void> _scanDates() async {
+    final result = await OcrDateHelper.extractDates(context, ref);
+    if (result == null || !mounted) return;
+
+    setState(() {
+      if (result.expiryDate != null) _expiryDate = result.expiryDate;
+      if (result.mfgDate != null) _mfgDate = result.mfgDate;
+      if (result.batchNumber != null &&
+          _batchController.text.trim().isEmpty) {
+        _batchController.text = result.batchNumber!;
+      }
+    });
+
+    final expiryConf =
+        result.fieldConfidence[LabelField.expiryDate];
+    if (expiryConf != null && expiryConf < 0.8 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Scanned date accepted at moderate confidence — please double-check.',
+          ),
+        ),
       );
-    } else {
-      setState(() => _dateError = null);
     }
   }
 
   Future<void> _pickDate({required bool isMfg}) async {
     final now = DateTime.now();
-    final initial = isMfg ? (_mfgDate ?? now) : (_expiryDate ?? now);
-    final first = DateTime(2000);
-    final last = DateTime(2100);
-
+    final initial =
+        isMfg ? (_mfgDate ?? now) : (_expiryDate ?? now);
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
-      firstDate: first,
-      lastDate: last,
-      helpText: isMfg
-          ? AppLocalizations.of(context).exSelectMfg
-          : AppLocalizations.of(context).exSelectExpiry,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: isMfg ? 'Select manufacturing date' : 'Select expiry date',
     );
-    if (picked == null) return;
-
+    if (picked == null || !mounted) return;
     setState(() {
       if (isMfg) {
         _mfgDate = picked;
@@ -108,69 +250,49 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
         _expiryDate = picked;
       }
     });
-    _validateDates();
   }
 
-  Future<void> _useCamera() async {
-    final result = await OcrDateHelper.extractDates(context, ref);
-    if (result == null || !mounted) return;
-
-    setState(() {
-      if (result.mfgDate != null) _mfgDate = result.mfgDate;
-      if (result.expiryDate != null) _expiryDate = result.expiryDate;
-      if (result.batchNumber != null && _batchController.text.trim().isEmpty) {
-        _batchController.text = result.batchNumber!;
-      }
-    });
-    _validateDates();
-
-    // The scanner only ever hands back a date once several frames agreed,
-    // but "agreed" isn't the same as "certain" — a mid-confidence accept is
-    // still worth a nudge to double-check before the user just hits Save.
-    final expiryConfidence = result.fieldConfidence[LabelField.expiryDate];
-    if (expiryConfidence != null && expiryConfidence < 0.8 && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Scanned date accepted at moderate confidence — please double-check it.'),
-        ),
-      );
-    }
-  }
+  // ── Submit ────────────────────────────────────────────────────────
 
   Future<void> _submit() async {
     final l10n = AppLocalizations.of(context);
-    if (!_formKey.currentState!.validate()) return;
     if (_expiryDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(l10n.exExpiryRequired)),
       );
       return;
     }
-    if (_dateError != null) return;
+    if (_mfgDate != null && _mfgDate!.isAfter(_expiryDate!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l10n.exMfgAfterExpiry)),
+      );
+      return;
+    }
 
-    setState(() => _loading = true);
+    setState(() => _submitting = true);
 
-    final storeId = ref.read(currentUserProvider)?.selectedStoreId;
+    final storeId =
+        ref.read(currentUserProvider)?.selectedStoreId ?? '';
+    final productId = _resolvedProductId ?? _eanController.text.trim();
 
     try {
       final dto = CreateExpiryDto(
-        productId: _productIdController.text.trim(),
-        storeId: storeId ?? '',
-        expiryDate: _expiryDate!.toIso8601String().split('T').first,
-        manufactureDate: _mfgDate?.toIso8601String().split('T').first,
+        productId: productId,
+        storeId: storeId,
+        expiryDate:
+            _expiryDate!.toIso8601String().split('T').first,
+        manufactureDate:
+            _mfgDate?.toIso8601String().split('T').first,
         batchNumber: _batchController.text.trim().isEmpty
             ? null
             : _batchController.text.trim(),
-        quantity: int.tryParse(_quantityController.text.trim()),
+        quantity:
+            int.tryParse(_quantityController.text.trim()),
         shelfLocation: _locationController.text.trim().isEmpty
             ? null
             : _locationController.text.trim(),
       );
 
-      // Route through the offline-first queue (Task 16). Successful 2xx
-      // responses go straight through; offline / 5xx responses are
-      // persisted in `pending_writes` and surfaced via the
-      // [SyncStatusBanner].
       final result = await ref
           .read(syncServiceProvider)
           .enqueue<void>(
@@ -178,8 +300,8 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
             method: 'POST',
             body: dto.toJson(),
           );
-      if (!mounted) return;
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -190,162 +312,509 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
       Navigator.of(context).pop();
     } on ApiException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(e.message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.message)));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l10n.exSubmitError)),
+        SnackBar(content: Text(AppLocalizations.of(context).exSubmitError)),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _submitting = false);
     }
   }
 
-  String _formatDate(DateTime? date, String notSetLabel) {
-    if (date == null) return notSetLabel;
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  // ── Formatters ───────────────────────────────────────────────────
+
+  String _fmtDate(DateTime? d) {
+    if (d == null) return 'Not set';
+    return '${d.day.toString().padLeft(2, '0')}/'
+        '${d.month.toString().padLeft(2, '0')}/'
+        '${d.year}';
   }
+
+  // ── Build ─────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context);
-
-    return Scaffold(
-      appBar: AppBar(title: Text(l10n.exTitle)),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(
-            horizontal: RadhaSpacing.space24,
-            vertical: RadhaSpacing.space24,
+    return PopScope(
+      canPop: _step == _kStepProduct,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _handleBack();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(AppLocalizations.of(context).exTitle),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () {
+              if (!_handleBack()) Navigator.of(context).pop();
+            },
           ),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Prominent OCR helper card (mobile only) — the fast path.
-                if (_canUseCamera) ...[
-                  _OcrHelperCard(
-                    onTap: _loading ? null : _useCamera,
-                  ),
-                  const SizedBox(height: RadhaSpacing.space24),
-                ],
-
-                // Product ID
-                Text(l10n.exProductIdLabel, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                if (widget.prefillProductName != null) ...[
-                  Text(
-                    widget.prefillProductName!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: RadhaSpacing.space8),
-                ],
-                TextFormField(
-                  controller: _productIdController,
-                  enabled: !_loading,
-                  decoration: InputDecoration(
-                    hintText: l10n.exProductIdHint,
-                  ),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? l10n.commonRequired
-                      : null,
-                ),
-                const SizedBox(height: RadhaSpacing.space24),
-
-                // MFG Date
-                Text(l10n.exMfgLabel, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                _DatePickerTile(
-                  label: _formatDate(_mfgDate, l10n.exNotSet),
-                  onTap: _loading ? null : () => _pickDate(isMfg: true),
-                ),
-                const SizedBox(height: RadhaSpacing.space24),
-
-                // Expiry Date
-                Text(l10n.exExpiryLabel, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                _DatePickerTile(
-                  label: _formatDate(_expiryDate, l10n.exNotSet),
-                  onTap: _loading ? null : () => _pickDate(isMfg: false),
-                ),
-
-                // Date validation error
-                if (_dateError != null) ...[
-                  const SizedBox(height: RadhaSpacing.space8),
-                  Text(
-                    _dateError!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: RadhaColors.danger,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: RadhaSpacing.space24),
-
-                // Batch number
-                Text(l10n.exBatchLabel, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                TextFormField(
-                  controller: _batchController,
-                  enabled: !_loading,
-                  decoration: InputDecoration(hintText: l10n.commonOptional),
-                ),
-                const SizedBox(height: RadhaSpacing.space24),
-
-                // Quantity
-                Text(l10n.commonQuantity, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                TextFormField(
-                  controller: _quantityController,
-                  enabled: !_loading,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(hintText: l10n.commonOptional),
-                ),
-                const SizedBox(height: RadhaSpacing.space24),
-
-                // Location
-                Text(l10n.exLocationLabel, style: theme.textTheme.labelLarge),
-                const SizedBox(height: RadhaSpacing.space8),
-                TextFormField(
-                  controller: _locationController,
-                  enabled: !_loading,
-                  decoration: InputDecoration(
-                    hintText: l10n.exLocationHint,
+        ),
+        body: SafeArea(
+          child: Column(
+            children: [
+              _StepIndicator(current: _step, total: _kSteps),
+              Expanded(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 280),
+                  transitionBuilder: (child, animation) {
+                    final slide = Tween<Offset>(
+                      begin: const Offset(0.08, 0),
+                      end: Offset.zero,
+                    ).animate(CurvedAnimation(
+                      parent: animation,
+                      curve: Curves.easeOut,
+                    ));
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: slide,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: KeyedSubtree(
+                    key: ValueKey(_step),
+                    child: _buildStep(context),
                   ),
                 ),
-                const SizedBox(height: RadhaSpacing.space32),
-
-                // Submit
-                PrimaryButton(
-                  label: l10n.exSaveRecord,
-                  expand: true,
-                  loading: _loading,
-                  onPressed: _loading || _dateError != null ? null : _submit,
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildStep(BuildContext context) {
+    switch (_step) {
+      case _kStepProduct:
+        return _buildProductStep(context);
+      case _kStepExpiry:
+        return _buildDateStep(
+          context,
+          isMfg: false,
+          title: 'Expiry Date',
+          subtitle: 'Required — when does this product expire?',
+          date: _expiryDate,
+          onNext: _expiryDate != null ? _advance : null,
+          onSkip: null,
+        );
+      case _kStepMfg:
+        return _buildDateStep(
+          context,
+          isMfg: true,
+          title: 'Manufacturing Date',
+          subtitle: 'Optional — when was this product made?',
+          date: _mfgDate,
+          onNext: _advance,
+          onSkip: _advance, // always skippable
+        );
+      case _kStepExtras:
+        return _buildExtrasStep(context);
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  // ── Step 1: Product ───────────────────────────────────────────────
+
+  Widget _buildProductStep(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(RadhaSpacing.space24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Product',
+              style: theme.textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: RadhaSpacing.space4),
+          Text(
+            'Scan or enter the barcode to identify the product.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space24),
+
+          // Scan card.
+          if (_canUseCamera) ...[
+            _ActionCard(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Scan barcode',
+              subtitle: 'Point camera at the product barcode',
+              onTap: _productLookupLoading ? null : _scanEan,
+            ),
+            const SizedBox(height: RadhaSpacing.space20),
+            Row(children: [
+              Expanded(child: Divider(color: theme.colorScheme.outline)),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: RadhaSpacing.space12),
+                child: Text('or enter manually',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )),
+              ),
+              Expanded(child: Divider(color: theme.colorScheme.outline)),
+            ]),
+            const SizedBox(height: RadhaSpacing.space20),
+          ],
+
+          // EAN text field.
+          Text('EAN / Barcode number',
+              style: theme.textTheme.labelLarge),
+          const SizedBox(height: RadhaSpacing.space8),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _eanController,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
+                  decoration: const InputDecoration(
+                    hintText: '8901234567890',
+                  ),
+                  onSubmitted: (v) => _lookupProduct(v),
+                ),
+              ),
+              const SizedBox(width: RadhaSpacing.space8),
+              FilledButton(
+                onPressed: _productLookupLoading
+                    ? null
+                    : () => _lookupProduct(_eanController.text),
+                child: _productLookupLoading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: RadhaColors.onPrimary),
+                      )
+                    : const Text('Look up'),
+              ),
+            ],
+          ),
+
+          // Lookup result.
+          if (_productLookupError != null) ...[
+            const SizedBox(height: RadhaSpacing.space8),
+            Text(
+              _productLookupError!,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: RadhaColors.danger),
+            ),
+          ],
+
+          if (_productName != null) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            _ProductFoundBanner(name: _productName!),
+          ],
+
+          if (_productNotFound) ...[
+            const SizedBox(height: RadhaSpacing.space16),
+            Container(
+              padding: const EdgeInsets.all(RadhaSpacing.space16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius:
+                    BorderRadius.circular(RadhaRadii.radiusMd),
+                border: Border.all(color: theme.colorScheme.outline),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline_rounded,
+                          size: 16,
+                          color:
+                              theme.colorScheme.onSurfaceVariant),
+                      const SizedBox(width: RadhaSpacing.space8),
+                      Expanded(
+                        child: Text(
+                          'Product not found in catalog.',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color:
+                                theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: RadhaSpacing.space12),
+                  Text('Please enter the product name:',
+                      style: theme.textTheme.labelLarge),
+                  const SizedBox(height: RadhaSpacing.space8),
+                  TextField(
+                    controller: _manualNameController,
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. Parle-G Biscuits 200g',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          const SizedBox(height: RadhaSpacing.space32),
+          PrimaryButton(
+            label: 'Next',
+            icon: Icons.arrow_forward_rounded,
+            expand: true,
+            onPressed: _step1CanAdvance ? _step1Next : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Step 2 & 3: Date steps ────────────────────────────────────────
+
+  Widget _buildDateStep(
+    BuildContext context, {
+    required bool isMfg,
+    required String title,
+    required String subtitle,
+    required DateTime? date,
+    required VoidCallback? onNext,
+    required VoidCallback? onSkip,
+  }) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(RadhaSpacing.space24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: theme.textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: RadhaSpacing.space4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space24),
+
+          // OCR scan card (mobile only).
+          if (_canUseCamera) ...[
+            _ActionCard(
+              icon: Icons.document_scanner_outlined,
+              title: 'Scan the date off the pack',
+              subtitle: "We'll read MFG / EXP for you",
+              onTap: _scanDates,
+            ),
+            const SizedBox(height: RadhaSpacing.space20),
+            Row(children: [
+              Expanded(child: Divider(color: theme.colorScheme.outline)),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: RadhaSpacing.space12),
+                child: Text('or pick manually',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    )),
+              ),
+              Expanded(child: Divider(color: theme.colorScheme.outline)),
+            ]),
+            const SizedBox(height: RadhaSpacing.space20),
+          ],
+
+          // Date picker tile.
+          Text(title, style: theme.textTheme.labelLarge),
+          const SizedBox(height: RadhaSpacing.space8),
+          _DateTile(
+            label: _fmtDate(date),
+            hasValue: date != null,
+            onTap: () => _pickDate(isMfg: isMfg),
+          ),
+
+          const SizedBox(height: RadhaSpacing.space32),
+
+          Row(
+            children: [
+              if (onSkip != null) ...[
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onSkip,
+                    child: const Text('Skip'),
+                  ),
+                ),
+                const SizedBox(width: RadhaSpacing.space12),
+              ],
+              Expanded(
+                flex: 2,
+                child: PrimaryButton(
+                  label: 'Next',
+                  icon: Icons.arrow_forward_rounded,
+                  expand: true,
+                  onPressed: onNext,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Step 4: Extras ────────────────────────────────────────────────
+
+  Widget _buildExtrasStep(BuildContext context) {
+    final theme = Theme.of(context);
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(RadhaSpacing.space24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Additional Details',
+              style: theme.textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: RadhaSpacing.space4),
+          Text(
+            'All fields are optional.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space24),
+
+          // Summary chip.
+          _SummaryBanner(
+            productName: _productName,
+            ean: _eanController.text.trim(),
+            expiryDate: _expiryDate,
+            mfgDate: _mfgDate,
+            formatDate: _fmtDate,
+          ),
+          const SizedBox(height: RadhaSpacing.space24),
+
+          // Batch number.
+          Text(AppLocalizations.of(context).exBatchLabel,
+              style: theme.textTheme.labelLarge),
+          const SizedBox(height: RadhaSpacing.space8),
+          TextFormField(
+            controller: _batchController,
+            enabled: !_submitting,
+            decoration: InputDecoration(
+                hintText: AppLocalizations.of(context).commonOptional),
+          ),
+          const SizedBox(height: RadhaSpacing.space20),
+
+          // Quantity.
+          Text(AppLocalizations.of(context).commonQuantity,
+              style: theme.textTheme.labelLarge),
+          const SizedBox(height: RadhaSpacing.space8),
+          TextFormField(
+            controller: _quantityController,
+            enabled: !_submitting,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+            ],
+            decoration: InputDecoration(
+                hintText: AppLocalizations.of(context).commonOptional),
+          ),
+          const SizedBox(height: RadhaSpacing.space20),
+
+          // Location.
+          Text(AppLocalizations.of(context).exLocationLabel,
+              style: theme.textTheme.labelLarge),
+          const SizedBox(height: RadhaSpacing.space8),
+          TextFormField(
+            controller: _locationController,
+            enabled: !_submitting,
+            decoration: InputDecoration(
+              hintText:
+                  AppLocalizations.of(context).exLocationHint,
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space32),
+
+          PrimaryButton(
+            label: AppLocalizations.of(context).exSaveRecord,
+            expand: true,
+            loading: _submitting,
+            onPressed: _submitting ? null : _submit,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-/// Prominent OCR helper card — the recommended fast path for entering dates.
-class _OcrHelperCard extends StatelessWidget {
-  const _OcrHelperCard({required this.onTap});
+// ─────────────────────────────────────────────────────────────────
+// Private widgets
+// ─────────────────────────────────────────────────────────────────
 
+class _StepIndicator extends StatelessWidget {
+  const _StepIndicator({required this.current, required this.total});
+
+  final int current;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        RadhaSpacing.space24,
+        RadhaSpacing.space8,
+        RadhaSpacing.space24,
+        RadhaSpacing.space4,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Step ${current + 1} of $total',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: RadhaSpacing.space8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
+            child: LinearProgressIndicator(
+              value: (current + 1) / total,
+              minHeight: 4,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              valueColor: const AlwaysStoppedAnimation(RadhaColors.primary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Card with icon, title, subtitle — used for "Scan barcode" and "Scan
+/// dates from pack" call-to-action tiles.
+class _ActionCard extends StatelessWidget {
+  const _ActionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final l10n = AppLocalizations.of(context);
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
@@ -360,40 +829,35 @@ class _OcrHelperCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              SizedBox(
+              Container(
                 width: 44,
                 height: 44,
-                child: MorCompanion(
-                  mood: MorMood.think,
-                  size: 44,
-                  semanticLabel: l10n.exOcrSemantic,
+                decoration: BoxDecoration(
+                  color: RadhaColors.primary.withValues(alpha: 0.12),
+                  borderRadius:
+                      BorderRadius.circular(RadhaRadii.radiusSm),
                 ),
+                child: Icon(icon, color: RadhaColors.primary, size: 22),
               ),
               const SizedBox(width: RadhaSpacing.space12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      l10n.exOcrTitle,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: RadhaSpacing.space2),
-                    Text(
-                      l10n.exOcrSubtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                    Text(title,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        )),
                   ],
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              Icon(Icons.chevron_right_rounded,
+                  color: theme.colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -402,17 +866,21 @@ class _OcrHelperCard extends StatelessWidget {
   }
 }
 
-/// Tappable row that displays a date value and opens the date picker on tap.
-class _DatePickerTile extends StatelessWidget {
-  const _DatePickerTile({required this.label, this.onTap});
+/// Tappable date tile. Highlights when a date is already selected.
+class _DateTile extends StatelessWidget {
+  const _DateTile({
+    required this.label,
+    required this.hasValue,
+    required this.onTap,
+  });
 
   final String label;
-  final VoidCallback? onTap;
+  final bool hasValue;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return InkWell(
       borderRadius: BorderRadius.circular(RadhaRadii.radiusSm),
       onTap: onTap,
@@ -423,20 +891,177 @@ class _DatePickerTile extends StatelessWidget {
           vertical: RadhaSpacing.space12,
         ),
         decoration: BoxDecoration(
-          border: Border.all(color: theme.colorScheme.outline),
+          color: hasValue
+              ? RadhaColors.primary.withValues(alpha: 0.06)
+              : null,
+          border: Border.all(
+            color: hasValue
+                ? RadhaColors.primary
+                : theme.colorScheme.outline,
+          ),
           borderRadius: BorderRadius.circular(RadhaRadii.radiusSm),
         ),
         child: Row(
           children: [
-            Expanded(child: Text(label, style: theme.textTheme.bodyLarge)),
             Icon(
               Icons.calendar_today_outlined,
-              size: 20,
-              color: theme.colorScheme.onSurfaceVariant,
+              size: 18,
+              color: hasValue
+                  ? RadhaColors.primary
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: RadhaSpacing.space8),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: hasValue
+                      ? RadhaColors.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                  fontWeight:
+                      hasValue ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Green banner shown when the catalog lookup succeeds.
+class _ProductFoundBanner extends StatelessWidget {
+  const _ProductFoundBanner({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: RadhaSpacing.space12,
+        vertical: RadhaSpacing.space8,
+      ),
+      decoration: BoxDecoration(
+        color: RadhaColors.success.withValues(alpha: 0.1),
+        border: Border.all(color: RadhaColors.success),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusSm),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.check_circle_outline_rounded,
+              color: RadhaColors.success, size: 18),
+          const SizedBox(width: RadhaSpacing.space8),
+          Expanded(
+            child: Text(
+              name,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: RadhaColors.success,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Compact recap shown at the top of step 4 so the user can see what they
+/// collected before submitting.
+class _SummaryBanner extends StatelessWidget {
+  const _SummaryBanner({
+    required this.productName,
+    required this.ean,
+    required this.expiryDate,
+    required this.mfgDate,
+    required this.formatDate,
+  });
+
+  final String? productName;
+  final String ean;
+  final DateTime? expiryDate;
+  final DateTime? mfgDate;
+  final String Function(DateTime?) formatDate;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final name = productName ?? ean;
+    return Container(
+      padding: const EdgeInsets.all(RadhaSpacing.space12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SummaryRow(
+            icon: Icons.inventory_2_outlined,
+            label: 'Product',
+            value: name,
+          ),
+          const SizedBox(height: RadhaSpacing.space8),
+          _SummaryRow(
+            icon: Icons.event_outlined,
+            label: 'Expires',
+            value: formatDate(expiryDate),
+          ),
+          if (mfgDate != null) ...[
+            const SizedBox(height: RadhaSpacing.space8),
+            _SummaryRow(
+              icon: Icons.factory_outlined,
+              label: 'Manufactured',
+              value: formatDate(mfgDate),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryRow extends StatelessWidget {
+  const _SummaryRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant),
+        const SizedBox(width: RadhaSpacing.space8),
+        Text(
+          '$label: ',
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurface,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
