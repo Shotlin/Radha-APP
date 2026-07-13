@@ -31,9 +31,22 @@ class ErrorInterceptor extends Interceptor {
     }
 
     final statusCode = response.statusCode ?? 0;
-    final data = response.data is Map<String, dynamic>
-        ? response.data as Map<String, dynamic>
-        : <String, dynamic>{};
+
+    // EnvelopeInterceptor rejects with err.error = the { code, message }
+    // sub-object from the backend envelope { success:false, error:{...}, meta }.
+    // For non-envelope responses err.error is null or a native exception.
+    final dynamic rawErr = err.error;
+    final Map<String, dynamic> data;
+    if (rawErr is Map<String, dynamic>) {
+      data = rawErr;
+    } else {
+      final rawData = response.data is Map<String, dynamic>
+          ? response.data as Map<String, dynamic>
+          : <String, dynamic>{};
+      data = rawData['error'] is Map<String, dynamic>
+          ? rawData['error'] as Map<String, dynamic>
+          : rawData;
+    }
 
     final code = data['code'] as String? ?? 'UNKNOWN';
     final message =

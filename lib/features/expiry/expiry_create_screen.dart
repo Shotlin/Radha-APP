@@ -12,6 +12,7 @@ import '../../core/auth/auth_controller.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/dto/expiry_dto.dart';
+import '../../core/network/dto/product_dto.dart';
 import '../../core/offline/sync_service.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/primary_button.dart';
@@ -166,15 +167,28 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
     } on DioException catch (e) {
       if (!mounted) return;
       final inner = e.error;
+      final apiErr = inner is ApiException ? inner : null;
+      final String errorMsg;
+      if (apiErr?.statusCode == 400) {
+        errorMsg = 'Invalid barcode number — please check and try again.';
+      } else if (e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
+        errorMsg = 'No connection — check your network and try again.';
+      } else {
+        errorMsg =
+            (apiErr?.message.isNotEmpty == true)
+                ? apiErr!.message
+                : 'Network error — try again';
+      }
       setState(() {
-        _productLookupError =
-            inner is ApiException ? inner.message : 'Network error — try again';
+        _productLookupError = errorMsg;
         _productLookupLoading = false;
       });
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
-        _productLookupError = e.message;
+        _productLookupError = e.message.isNotEmpty ? e.message : 'Network error — try again';
         _productLookupLoading = false;
       });
     } catch (_) {
@@ -267,7 +281,60 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
     setState(() => _submitting = true);
 
     final storeId = ref.read(currentUserProvider)?.selectedStoreId;
-    final productId = _resolvedProductId ?? _eanController.text.trim();
+    String? productId = _resolvedProductId;
+
+    // When the product wasn't found in catalog, _resolvedProductId is the
+    // raw EAN string. Create a catalog stub first so we get a real UUID.
+    if (_productNotFound && _productName != null) {
+      try {
+        final api = ref.read(apiClientProvider);
+        final created = await api.createProduct(CreateProductDto(
+          name: _productName!,
+          ean: _eanController.text.trim().isNotEmpty
+              ? _eanController.text.trim()
+              : null,
+        ));
+        productId = created.id;
+      } on ForbiddenException {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Product not in catalog — ask your manager to add it first.',
+            ),
+          ),
+        );
+        setState(() => _submitting = false);
+        return;
+      } on DioException catch (e) {
+        if (!mounted) return;
+        final inner = e.error;
+        final msg = inner is ApiException && inner.message.isNotEmpty
+            ? inner.message
+            : 'Failed to register product — please try again.';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg)),
+        );
+        setState(() => _submitting = false);
+        return;
+      } catch (_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to register product — please try again.')),
+        );
+        setState(() => _submitting = false);
+        return;
+      }
+    }
+
+    if (productId == null || productId.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please look up the product before saving.')),
+      );
+      setState(() => _submitting = false);
+      return;
+    }
 
     try {
       final dto = CreateExpiryDto(
@@ -425,6 +492,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   Widget _buildProductStep(BuildContext context) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.all(RadhaSpacing.space24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,6 +659,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   }) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.all(RadhaSpacing.space24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -678,6 +747,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   Widget _buildExtrasStep(BuildContext context) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.all(RadhaSpacing.space24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
