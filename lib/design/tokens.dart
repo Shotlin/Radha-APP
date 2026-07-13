@@ -79,17 +79,19 @@ class RadhaColors {
   /// highlight or a single chart series). Never a second brand accent.
   static const Color complement = Color(0xFF0F766E);
 
-  // --- Functional semantics (low-saturation) -----------------------------
+  // --- Functional semantics (high-saturation — expiry status) ------------
+  // Deliberately vivid/neon per founder request: expiry status (safe /
+  // near-expiry / expired) needs to read at a glance during a fast shelf
+  // audit, not blend into a restrained palette.
 
-  /// Success / fresh / in-stock state. Distinct green, NOT a second accent.
-  static const Color success = Color(0xFF15803D);
+  /// Success / fresh / in-stock state / expiry "Safe". Neon green.
+  static const Color success = Color(0xFF00E676);
 
-  /// Warning state. Restrained amber, tonally sympathetic to the orange
-  /// accent (expiring soon, low stock).
-  static const Color warning = Color(0xFFB45309);
+  /// Warning state / expiry "Soon" (near-expiry, low stock). Neon yellow.
+  static const Color warning = Color(0xFFFFD600);
 
-  /// Danger / destructive state. Deep red, used sparingly.
-  static const Color danger = Color(0xFFB91C1C);
+  /// Danger / destructive state / expiry "Expired". Pure vivid red.
+  static const Color danger = Color(0xFFFF3B30);
 
   // --- Festive accents (celebration-only) --------------------------------
   // Per the Visual Bible §2.1: marigold + turmeric are reserved strictly for
