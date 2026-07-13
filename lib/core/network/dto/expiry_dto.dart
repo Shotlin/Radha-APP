@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'expiry_dto.g.dart';
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class CreateExpiryDto {
   const CreateExpiryDto({
     required this.productId,

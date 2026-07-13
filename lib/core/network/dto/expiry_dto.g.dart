@@ -11,11 +11,11 @@ Map<String, dynamic> _$CreateExpiryDtoToJson(CreateExpiryDto instance) =>
       'productId': instance.productId,
       'storeId': instance.storeId,
       'expiryDate': instance.expiryDate,
-      'manufactureDate': instance.manufactureDate,
-      'batchNumber': instance.batchNumber,
-      'quantity': instance.quantity,
+      if (instance.manufactureDate case final value?) 'manufactureDate': value,
+      if (instance.batchNumber case final value?) 'batchNumber': value,
+      if (instance.quantity case final value?) 'quantity': value,
       'source': instance.source,
-      'shelfLocation': instance.shelfLocation,
+      if (instance.shelfLocation case final value?) 'shelfLocation': value,
     };
 
 ExpiryResponse _$ExpiryResponseFromJson(Map<String, dynamic> json) =>
