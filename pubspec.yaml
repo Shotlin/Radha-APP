@@ -80,6 +80,16 @@ dependencies:
   # razorpay_checkout_sheet.dart; the Key ID is provided by the server's
   # /payments/checkout response, so no Razorpay key is compiled into the app.
   razorpay_flutter: ^1.4.5
+  csv: ^8.0.0
+  # Pinned below 11.x: 11.0.2's Android build.gradle conditionally skips
+  # applying org.jetbrains.kotlin.android when AGP >= 9 (assuming AGP9's
+  # built-in Kotlin support), but this project has android.builtInKotlin=false
+  # in android/gradle.properties, so with AGP 9.0.1 that leaves
+  # FilePickerPlugin.kt uncompiled entirely — "cannot find symbol
+  # FilePickerPlugin" at Java compile time. 10.3.10 unconditionally applies
+  # the Kotlin plugin, matching every other KGP-based plugin already working
+  # in this project. (10.3.11 exists but is publisher-retracted.)
+  file_picker: 10.3.10
 
 dev_dependencies:
   flutter_test:
@@ -136,6 +146,8 @@ flutter:
     - assets/v2/states/
     - assets/v2/banners/
     - assets/v2/plus/
+    # ── CSV bulk-import template (Expiry tracker) ──────────────────────────
+    - assets/templates/expiry_import_template.csv
 
   fonts:
     - family: PlusJakartaSans

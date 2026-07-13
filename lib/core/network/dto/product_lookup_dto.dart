@@ -148,3 +148,15 @@ class ProductLookupResult {
   factory ProductLookupResult.fromJson(Map<String, dynamic> json) =>
       _$ProductLookupResultFromJson(json);
 }
+
+/// Body for `POST /api/v1/products/lookup/batch` — resolves up to 50 EANs
+/// to catalog products in one round trip. Used by the expiry CSV bulk
+/// import to avoid one lookup call per row (`expiry_csv_review_screen.dart`).
+@JsonSerializable(createFactory: false, includeIfNull: false)
+class ProductLookupBatchDto {
+  const ProductLookupBatchDto({required this.eans});
+
+  final List<String> eans;
+
+  Map<String, dynamic> toJson() => _$ProductLookupBatchDtoToJson(this);
+}

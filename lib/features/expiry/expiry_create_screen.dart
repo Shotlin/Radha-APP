@@ -3,10 +3,12 @@ import 'dart:io' show Platform;
 import 'package:uuid/uuid.dart';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/network/api_client.dart';
@@ -14,11 +16,13 @@ import '../../core/network/api_exception.dart';
 import '../../core/network/dto/expiry_dto.dart';
 import '../../core/network/dto/product_dto.dart';
 import '../../core/offline/sync_service.dart';
+import '../../core/router/app_router.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../l10n/generated/app_localizations.dart';
 import 'date_scanner_screen.dart';
 import 'ean_picker_screen.dart';
+import 'expiry_csv_parser.dart';
 
 // ─────────────────────────────────────────────────────────────────
 // Total wizard steps.
@@ -66,6 +70,7 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
   bool _productNotFound = false; // true when API returned 404
   String? _productLookupError; // non-404 errors shown inline
   final _manualNameController = TextEditingController();
+  bool _csvImporting = false;
 
   // ── Step 2: Expiry date ─────────────────────────────────────────
   DateTime? _expiryDate;
@@ -130,6 +135,42 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
     if (ean == null || !mounted) return;
     _eanController.text = ean;
     await _lookupProduct(ean);
+  }
+
+  Future<void> _importCsv() async {
+    setState(() => _csvImporting = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        withData: true,
+      );
+      if (result == null || !mounted) return;
+      final bytes = result.files.first.bytes;
+      if (bytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read this file.')),
+        );
+        return;
+      }
+      try {
+        final rows = ExpiryCsvParser.parse(bytes);
+        if (!mounted) return;
+        context.push(AppRoute.expiryCsvImportReview, extra: rows);
+      } on ExpiryCsvParseException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open file picker — try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => _csvImporting = false);
+    }
   }
 
   Future<void> _lookupProduct(String ean) async {
@@ -528,21 +569,32 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
               subtitle: 'Point camera at the product barcode',
               onTap: _productLookupLoading ? null : _scanEan,
             ),
-            const SizedBox(height: RadhaSpacing.space20),
-            Row(children: [
-              Expanded(child: Divider(color: theme.colorScheme.outline)),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: RadhaSpacing.space12),
-                child: Text('or enter manually',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    )),
-              ),
-              Expanded(child: Divider(color: theme.colorScheme.outline)),
-            ]),
-            const SizedBox(height: RadhaSpacing.space20),
+            const SizedBox(height: RadhaSpacing.space12),
           ],
+
+          // Bulk CSV import — add many products at once instead of the
+          // single-product wizard below.
+          _ActionCard(
+            icon: Icons.upload_file_rounded,
+            title: 'Import from CSV',
+            subtitle: 'Add many products at once from a file',
+            onTap: _csvImporting ? null : _importCsv,
+          ),
+          const SizedBox(height: RadhaSpacing.space20),
+
+          Row(children: [
+            Expanded(child: Divider(color: theme.colorScheme.outline)),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: RadhaSpacing.space12),
+              child: Text('or enter manually',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  )),
+            ),
+            Expanded(child: Divider(color: theme.colorScheme.outline)),
+          ]),
+          const SizedBox(height: RadhaSpacing.space20),
 
           // EAN text field.
           Text('EAN / Barcode number',

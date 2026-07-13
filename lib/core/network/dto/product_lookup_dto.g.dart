@@ -52,3 +52,7 @@ ProductLookupResult _$ProductLookupResultFromJson(Map<String, dynamic> json) =>
               json['health'] as Map<String, dynamic>,
             ),
     );
+
+Map<String, dynamic> _$ProductLookupBatchDtoToJson(
+  ProductLookupBatchDto instance,
+) => <String, dynamic>{'eans': instance.eans};
