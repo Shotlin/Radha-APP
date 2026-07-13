@@ -28,7 +28,7 @@ Map<String, dynamic> _$SubmissionPresignRequestDtoToJson(
 ) => <String, dynamic>{
   'contentType': instance.contentType,
   'contentLength': instance.contentLength,
-  'filename': instance.filename,
+  if (instance.filename case final value?) 'filename': value,
 };
 
 SubmissionPresignResponseDto _$SubmissionPresignResponseDtoFromJson(

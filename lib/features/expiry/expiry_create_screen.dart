@@ -168,10 +168,21 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
       if (!mounted) return;
       final inner = e.error;
       final apiErr = inner is ApiException ? inner : null;
-      final String errorMsg;
       if (apiErr?.statusCode == 400) {
-        errorMsg = 'Invalid barcode number — please check and try again.';
-      } else if (e.type == DioExceptionType.connectionError ||
+        // Backend's format/checksum check rejected this string (e.g. a
+        // mistyped digit, a non-GS1 in-house code, a partial OCR read).
+        // Store owners punch in barcodes by hand constantly — treat this
+        // the same as "not found in catalog" rather than blocking them:
+        // let them proceed to manual name entry instead of a dead end.
+        setState(() {
+          _productNotFound = true;
+          _resolvedProductId = trimmed;
+          _productLookupLoading = false;
+        });
+        return;
+      }
+      final String errorMsg;
+      if (e.type == DioExceptionType.connectionError ||
           e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout) {
         errorMsg = 'No connection — check your network and try again.';

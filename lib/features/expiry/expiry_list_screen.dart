@@ -168,6 +168,9 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
     final isConsumerMode =
         !(session?.roles.any(kBusinessRoles.contains) ?? false);
 
+    // Whole-page scroll: hero banner, stats, and 7-day risk strip scroll
+    // away together with the list underneath (one continuous sheet) —
+    // only the segmented tab bar stays pinned once it reaches the top.
     final body = auth.isLoading
         ? const _ExpiryListSkeleton()
         : selectedStoreId == null
@@ -175,50 +178,60 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
             canSelectStore: hasSelectableStores,
             isConsumerMode: isConsumerMode,
           )
-        : Column(
-            children: [
+        : NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
               if (!isConsumerMode) ...[
-                BizScreenHero(
-                  assetPath: RadhaAssets.heroExpiryIntelligence,
-                  headline: 'Act before stock becomes waste',
-                  subtitle: 'Track expiry dates across all batches',
+                SliverToBoxAdapter(
+                  child: BizScreenHero(
+                    assetPath: RadhaAssets.heroExpiryIntelligence,
+                    headline: 'Act before stock becomes waste',
+                    subtitle: 'Track expiry dates across all batches',
+                  ),
                 ),
-                _ExpiryStatsRow(storeId: selectedStoreId),
-                _ExpiryRiskTimeline(storeId: selectedStoreId),
+                SliverToBoxAdapter(
+                  child: _ExpiryStatsRow(storeId: selectedStoreId),
+                ),
+                SliverToBoxAdapter(
+                  child: _ExpiryRiskTimeline(storeId: selectedStoreId),
+                ),
               ],
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  RadhaSpacing.space20,
-                  RadhaSpacing.space8,
-                  RadhaSpacing.space20,
-                  RadhaSpacing.space12,
-                ),
-                child: _SegmentedTabs(
-                  labels: _tabs.map((t) => _tabLabel(l10n, t)).toList(),
-                  index: _index,
-                  onChanged: (i) {
-                    HapticFeedback.selectionClick();
-                    _tabController.animateTo(i);
-                  },
-                ),
-              ),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: _tabs
-                      .map(
-                        (t) => _ExpiryTabContent(
-                          query: _ExpiryQueryArgs(
-                            storeId: selectedStoreId,
-                            uiStatus: t.status,
-                            apiStatus: t.apiStatus,
-                          ),
-                        ),
-                      )
-                      .toList(),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _SliverTabBarDelegate(
+                  height: 64,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      RadhaSpacing.space20,
+                      RadhaSpacing.space8,
+                      RadhaSpacing.space20,
+                      RadhaSpacing.space12,
+                    ),
+                    child: _SegmentedTabs(
+                      labels: _tabs.map((t) => _tabLabel(l10n, t)).toList(),
+                      index: _index,
+                      onChanged: (i) {
+                        HapticFeedback.selectionClick();
+                        _tabController.animateTo(i);
+                      },
+                    ),
+                  ),
                 ),
               ),
             ],
+            body: TabBarView(
+              controller: _tabController,
+              children: _tabs
+                  .map(
+                    (t) => _ExpiryTabContent(
+                      query: _ExpiryQueryArgs(
+                        storeId: selectedStoreId,
+                        uiStatus: t.status,
+                        apiStatus: t.apiStatus,
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
           );
 
     return Scaffold(
@@ -487,6 +500,34 @@ class _ExpiryNeedsStore extends StatelessWidget {
   }
 }
 
+/// Pins [child] (the segmented tab bar) to the top of the NestedScrollView
+/// once the hero/stats/timeline slivers above it have scrolled away.
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  const _SliverTabBarDelegate({required this.child, required this.height});
+
+  final Widget child;
+  final double height;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surface,
+      child: child,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _SliverTabBarDelegate oldDelegate) {
+    return child != oldDelegate.child || height != oldDelegate.height;
+  }
+}
+
 /// Pill-style segmented control matching the mockup. Animated thumb.
 class _SegmentedTabs extends StatelessWidget {
   const _SegmentedTabs({
@@ -560,7 +601,6 @@ class _ExpiryTabContent extends ConsumerStatefulWidget {
 
 class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
     with AutomaticKeepAliveClientMixin {
-  final _scrollController = ScrollController();
   final List<ExpiryResponse> _more = [];
   String? _cursor;
   bool _initialised = false;
@@ -568,12 +608,6 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
 
   @override
   bool get wantKeepAlive => true;
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-  }
 
   @override
   void didUpdateWidget(covariant _ExpiryTabContent oldWidget) {
@@ -586,16 +620,21 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
     }
   }
 
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (_loadingMore || _cursor == null) return;
-    final pos = _scrollController.position;
-    if (pos.pixels >= pos.maxScrollExtent - 200) _loadMore();
+  // No explicit ScrollController: this list lives inside the screen's
+  // NestedScrollView (hero/stats/tabs collapse away as one continuous
+  // sheet), so it must use the ambient PrimaryScrollController that
+  // NestedScrollView wires up per tab rather than owning its own —
+  // otherwise the outer header would stop collapsing. Pagination instead
+  // watches bubbled ScrollNotifications, which report this list's own
+  // (post-collapse) metrics.
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (!_loadingMore &&
+        _cursor != null &&
+        notification.metrics.pixels >=
+            notification.metrics.maxScrollExtent - 200) {
+      _loadMore();
+    }
+    return false;
   }
 
   Future<void> _loadMore() async {
@@ -648,62 +687,69 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
         final items = <ExpiryResponse>[...page.items, ..._more];
 
         if (items.isEmpty) {
-          return RefreshIndicator(
-            color: RadhaColors.primary,
-            onRefresh: _refresh,
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
-              children: [
-                SizedBox(height: MediaQuery.of(context).size.height * 0.14),
-                Center(
-                  child: EmptyState(
-                    illustration: MorCompanion(
-                      mood: _emptyMood(widget.query.uiStatus),
-                      size: 104,
-                    ),
-                    title: _emptyTitle(l10n, widget.query.uiStatus),
-                    body: _emptyMessage(l10n, widget.query.uiStatus),
-                  ),
+          return NotificationListener<ScrollNotification>(
+            onNotification: _handleScrollNotification,
+            child: RefreshIndicator(
+              color: RadhaColors.primary,
+              onRefresh: _refresh,
+              child: ListView(
+                key: PageStorageKey<String>(widget.query.uiStatus),
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
                 ),
-              ],
+                children: [
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.14),
+                  Center(
+                    child: EmptyState(
+                      illustration: MorCompanion(
+                        mood: _emptyMood(widget.query.uiStatus),
+                        size: 104,
+                      ),
+                      title: _emptyTitle(l10n, widget.query.uiStatus),
+                      body: _emptyMessage(l10n, widget.query.uiStatus),
+                    ),
+                  ),
+                ],
+              ),
             ),
           );
         }
 
-        return RefreshIndicator(
-          color: RadhaColors.primary,
-          onRefresh: _refresh,
-          child: ListView.separated(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(
-              parent: BouncingScrollPhysics(),
-            ),
-            padding: const EdgeInsets.fromLTRB(
-              RadhaSpacing.space20,
-              RadhaSpacing.space4,
-              RadhaSpacing.space20,
-              RadhaSpacing.space32 + 72, // room for the FAB
-            ),
-            itemCount: items.length + (_loadingMore ? 1 : 0),
-            separatorBuilder: (_, _) =>
-                const SizedBox(height: RadhaSpacing.space8),
-            itemBuilder: (context, index) {
-              if (index >= items.length) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: RadhaSpacing.space16),
-                  child: Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+        return NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: RefreshIndicator(
+            color: RadhaColors.primary,
+            onRefresh: _refresh,
+            child: ListView.separated(
+              key: PageStorageKey<String>(widget.query.uiStatus),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(
+                RadhaSpacing.space20,
+                RadhaSpacing.space4,
+                RadhaSpacing.space20,
+                RadhaSpacing.space32 + 72, // room for the FAB
+              ),
+              itemCount: items.length + (_loadingMore ? 1 : 0),
+              separatorBuilder: (_, _) =>
+                  const SizedBox(height: RadhaSpacing.space8),
+              itemBuilder: (context, index) {
+                if (index >= items.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: RadhaSpacing.space16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                     ),
-                  ),
-                );
-              }
-              return _ExpiryListTile(item: items[index]);
-            },
+                  );
+                }
+                return _ExpiryListTile(item: items[index]);
+              },
+            ),
           ),
         );
       },

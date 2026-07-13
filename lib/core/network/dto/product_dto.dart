@@ -40,7 +40,7 @@ class PaginatedProducts {
       _$PaginatedProductsFromJson(json);
 }
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class CreateProductDto {
   const CreateProductDto({
     required this.name,

@@ -9,10 +9,11 @@ part of 'grn_dto.dart';
 Map<String, dynamic> _$CreateGrnDtoToJson(CreateGrnDto instance) =>
     <String, dynamic>{
       'supplierId': instance.supplierId,
-      'invoiceNumber': instance.invoiceNumber,
-      'invoiceDate': instance.invoiceDate,
-      'expectedDeliveryDate': instance.expectedDeliveryDate,
-      'items': instance.items,
+      if (instance.invoiceNumber case final value?) 'invoiceNumber': value,
+      if (instance.invoiceDate case final value?) 'invoiceDate': value,
+      if (instance.expectedDeliveryDate case final value?)
+        'expectedDeliveryDate': value,
+      if (instance.items case final value?) 'items': value,
     };
 
 GrnResponse _$GrnResponseFromJson(Map<String, dynamic> json) => GrnResponse(

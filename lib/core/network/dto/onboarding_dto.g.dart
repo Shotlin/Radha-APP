@@ -12,9 +12,10 @@ Map<String, dynamic> _$ActivateBusinessRequestToJson(
   'businessName': instance.businessName,
   'storeName': instance.storeName,
   'acceptTrialPro': instance.acceptTrialPro,
-  'storeCity': instance.storeCity,
-  'storePincode': instance.storePincode,
-  'preset': _$BusinessActivationPresetDtoEnumMap[instance.preset],
+  if (instance.storeCity case final value?) 'storeCity': value,
+  if (instance.storePincode case final value?) 'storePincode': value,
+  if (_$BusinessActivationPresetDtoEnumMap[instance.preset] case final value?)
+    'preset': value,
 };
 
 const _$BusinessActivationPresetDtoEnumMap = {

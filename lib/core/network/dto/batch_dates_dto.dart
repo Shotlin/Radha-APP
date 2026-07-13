@@ -88,7 +88,7 @@ class BatchDatesResponse {
 
 // ─── Observation (POST /products/{ean}/batches/{batchCode}/observations) ────
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class CreateObservationDto {
   const CreateObservationDto({
     required this.expiryDate,

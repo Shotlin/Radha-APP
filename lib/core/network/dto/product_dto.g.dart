@@ -28,7 +28,7 @@ PaginatedProducts _$PaginatedProductsFromJson(Map<String, dynamic> json) =>
 Map<String, dynamic> _$CreateProductDtoToJson(CreateProductDto instance) =>
     <String, dynamic>{
       'name': instance.name,
-      'ean': instance.ean,
-      'brand': instance.brand,
-      'category': instance.category,
+      if (instance.ean case final value?) 'ean': value,
+      if (instance.brand case final value?) 'brand': value,
+      if (instance.category case final value?) 'category': value,
     };

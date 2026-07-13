@@ -93,7 +93,7 @@ enum BusinessActivationPresetDto {
 }
 
 /// Request body for `POST /api/v1/account/activate-business`.
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class ActivateBusinessRequest {
   const ActivateBusinessRequest({
     required this.businessName,

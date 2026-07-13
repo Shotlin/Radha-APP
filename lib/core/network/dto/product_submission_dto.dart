@@ -55,7 +55,7 @@ class NutritionPanelPayload {
 }
 
 /// `POST /api/v1/products/learn/presign` request body.
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class SubmissionPresignRequestDto {
   const SubmissionPresignRequestDto({
     required this.contentType,

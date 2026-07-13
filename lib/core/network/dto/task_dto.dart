@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'task_dto.g.dart';
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class CreateTaskDto {
   const CreateTaskDto({
     required this.title,
@@ -27,7 +27,7 @@ class CreateTaskDto {
   Map<String, dynamic> toJson() => _$CreateTaskDtoToJson(this);
 }
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class UpdateTaskDto {
   const UpdateTaskDto({
     this.title,

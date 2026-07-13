@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 part 'grn_dto.g.dart';
 
-@JsonSerializable(createFactory: false)
+@JsonSerializable(createFactory: false, includeIfNull: false)
 class CreateGrnDto {
   const CreateGrnDto({
     required this.supplierId,

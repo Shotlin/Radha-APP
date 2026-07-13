@@ -46,9 +46,10 @@ Map<String, dynamic> _$CreateObservationDtoToJson(
   CreateObservationDto instance,
 ) => <String, dynamic>{
   'expiryDate': instance.expiryDate,
-  'mfgDate': instance.mfgDate,
+  if (instance.mfgDate case final value?) 'mfgDate': value,
   'capturedVia': instance.capturedVia,
-  'extractorConfidence': instance.extractorConfidence,
+  if (instance.extractorConfidence case final value?)
+    'extractorConfidence': value,
 };
 
 ObservationResponse _$ObservationResponseFromJson(Map<String, dynamic> json) =>
