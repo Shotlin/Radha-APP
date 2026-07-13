@@ -34,8 +34,10 @@ class ExpiryResponse {
     required this.productId,
     required this.expiryDate,
     this.productName,
+    this.manufactureDate,
     this.batchNumber,
     this.quantity,
+    this.remainingQuantity,
     this.status,
   });
 
@@ -47,8 +49,17 @@ class ExpiryResponse {
   /// short ID token display in that case.
   final String? productName;
   final String expiryDate;
+  final String? manufactureDate;
   final String? batchNumber;
+
+  /// Quantity originally received — set once at creation, never updated
+  /// after. Distinct from [remainingQuantity], the current stock level.
   final int? quantity;
+
+  /// Current stock level — what the Quick Audit scan mode reads/writes via
+  /// `PATCH /api/v1/expiry-records/:id`. `NOT NULL` on the server (set to
+  /// `quantity` at creation); nullable here only as defensive JSON parsing.
+  final int? remainingQuantity;
   final String? status;
 
   factory ExpiryResponse.fromJson(Map<String, dynamic> json) =>

@@ -24,8 +24,10 @@ ExpiryResponse _$ExpiryResponseFromJson(Map<String, dynamic> json) =>
       productId: json['productId'] as String,
       expiryDate: json['expiryDate'] as String,
       productName: json['productName'] as String?,
+      manufactureDate: json['manufactureDate'] as String?,
       batchNumber: json['batchNumber'] as String?,
       quantity: (json['quantity'] as num?)?.toInt(),
+      remainingQuantity: (json['remainingQuantity'] as num?)?.toInt(),
       status: json['status'] as String?,
     );
 

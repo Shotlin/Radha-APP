@@ -15,6 +15,8 @@ import '../../features/alternatives/healthy_alternatives_screen.dart';
 import '../../features/digest/weekly_digest_screen.dart';
 import '../../features/expiry/expiry_calendar_screen.dart';
 import '../../features/expiry/expiry_create_screen.dart';
+import '../../features/expiry/expiry_csv_review_screen.dart';
+import '../../features/expiry/expiry_csv_row.dart';
 import '../../features/expiry/expiry_list_screen.dart';
 import '../../features/grn/grn_create_screen.dart';
 import '../../features/grn/grn_items_screen.dart';
@@ -28,7 +30,7 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/recall/recall_alerts_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/saved_products/saved_products_screen.dart';
-import '../../features/scan/batch_scan_screen.dart';
+import '../../features/scan/quick_audit_screen.dart';
 import '../../features/scan/ean_audit_screen.dart';
 import '../../features/scan/label_scan_screen.dart';
 import '../../features/scan/scan_result_screen.dart';
@@ -81,6 +83,7 @@ class AppRoute {
   static const String batchScan = '/scan/batch';
   static const String expiry = '/expiry';
   static const String expiryNew = '/expiry/new';
+  static const String expiryCsvImportReview = '/expiry/import/review';
   static const String tasks = '/tasks';
   static const String taskCreate = '/tasks/create';
   static const String taskDetail = '/tasks/:id';
@@ -362,7 +365,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoute.batchScan,
         name: 'batchScan',
         parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) => const BatchScanScreen(),
+        builder: (context, state) => const QuickAuditScreen(),
       ),
       GoRoute(
         path: AppRoute.expiryNew,
@@ -375,6 +378,15 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             prefillProductId: extra?['productId'],
             prefillProductName: extra?['productName'],
           );
+        },
+      ),
+      GoRoute(
+        path: AppRoute.expiryCsvImportReview,
+        name: 'expiryCsvImportReview',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) {
+          final rows = state.extra as List<ExpiryCsvRow>? ?? const [];
+          return ExpiryCsvReviewScreen(rows: rows);
         },
       ),
       GoRoute(

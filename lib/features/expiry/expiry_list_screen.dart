@@ -267,7 +267,7 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
                   heroTag: 'batch_scan_fab',
                   backgroundColor: RadhaColors.inkRaised,
                   foregroundColor: Colors.white,
-                  tooltip: 'Batch scan',
+                  tooltip: 'Quick audit',
                   onPressed: () {
                     HapticFeedback.lightImpact();
                     context.push(AppRoute.batchScan);

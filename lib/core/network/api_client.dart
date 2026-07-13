@@ -84,6 +84,15 @@ abstract class ApiClient {
     @Query('includeNutrition') bool includeNutrition = true,
   });
 
+  /// Resolves up to 50 EANs to catalog products in one round trip — used by
+  /// the expiry CSV bulk import to avoid a lookup call per row. Local
+  /// catalog only, no external-provider fallback for misses (unlike
+  /// [getProductLookup]).
+  @POST('/api/v1/products/lookup/batch')
+  Future<Map<String, ProductLookupResult>> lookupProductsBatch(
+    @Body() ProductLookupBatchDto body,
+  );
+
   /// BE-12 Health Scoring — grade, score, warnings/positives, child-safety.
   /// Computes on demand if nothing is cached yet, so this never 404s for a
   /// resolvable product id.
@@ -189,6 +198,7 @@ abstract class ApiClient {
     @Query('limit') int? limit,
     @Query('status') String? status,
     @Query('storeId') String? storeId,
+    @Query('productId') String? productId,
   });
 
   @GET('/api/v1/expiry-records/{id}')
