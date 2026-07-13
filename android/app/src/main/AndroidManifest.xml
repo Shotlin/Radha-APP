@@ -3,6 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Barcode scanning, label OCR, and expiry-date capture use the camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Quick Audit scan mode vibrates the device on an expired-product hit.
+         Normal (not dangerous) permission — auto-granted at install, but
+         still must be declared or Vibrator.vibrate() silently no-ops. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Camera is not strictly required (gallery import works without it) so the
          app stays installable on camera-less devices. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />

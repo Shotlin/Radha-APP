@@ -258,7 +258,9 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
     if (record?.status == 'expired') {
       // Distinct, stronger alert than the barcode-confirm haptic — an
       // expired product needs to grab attention mid-scan, not just click.
-      HapticFeedback.vibrate();
+      // A single vibrate() reads as a faint click on many devices, so this
+      // fires two short pulses plus a system alert sound.
+      _playExpiredAlert();
     }
     setState(() {
       _lookingUp = false;
@@ -272,6 +274,17 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
       } else {
         _sheet = _SheetKind.notFound;
       }
+    });
+  }
+
+  /// Two short vibration pulses plus the system alert sound — fires once
+  /// when the sheet opens on an expired product. Both `HapticFeedback` and
+  /// `SystemSound` are built into Flutter (no new dependency/asset needed).
+  void _playExpiredAlert() {
+    HapticFeedback.vibrate();
+    SystemSound.play(SystemSoundType.alert);
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (mounted) HapticFeedback.vibrate();
     });
   }
 
