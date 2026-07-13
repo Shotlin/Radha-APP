@@ -74,9 +74,28 @@ class CachedProducts extends Table {
   Set<Column<Object>> get primaryKey => {ean};
 }
 
+/// Local mirror of `GET /expiry-records` list responses, keyed by
+/// `"{storeId}|{status}"` (one row per Soon/Expired/Safe tab per store —
+/// see `_ExpiryQueryArgs` in `expiry_list_screen.dart`). Read as a fallback
+/// when the live fetch fails so a CSV import (or any other write) a user
+/// just made stays visible on their own phone even with no connectivity
+/// afterward — this is a per-device viewing cache, not a substitute for the
+/// server's own backups.
+@DataClassName('CachedExpiryList')
+class CachedExpiryLists extends Table {
+  TextColumn get cacheKey => text()();
+
+  /// JSON-encoded `List<ExpiryResponse>` (each item via `.toJson()`).
+  TextColumn get payloadJson => text()();
+  IntColumn get fetchedAt => integer()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {cacheKey};
+}
+
 // ─── Database ───────────────────────────────────────────────────────────────
 
-@DriftDatabase(tables: [PendingWrites, CachedProducts])
+@DriftDatabase(tables: [PendingWrites, CachedProducts, CachedExpiryLists])
 class RadhaDatabase extends _$RadhaDatabase {
   /// Production opener — resolves the docs dir lazily so the database is
   /// only opened once (and only when a Drift query actually runs).
@@ -87,7 +106,7 @@ class RadhaDatabase extends _$RadhaDatabase {
   RadhaDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -97,6 +116,10 @@ class RadhaDatabase extends _$RadhaDatabase {
         // Phase 9: add idempotency_key column to pending_writes so the outbox
         // can send Idempotency-Key headers on replay and avoid duplicate writes.
         await m.addColumn(pendingWrites, pendingWrites.idempotencyKey);
+      }
+      if (from < 3) {
+        // Offline expiry-list viewing cache.
+        await m.createTable(cachedExpiryLists);
       }
     },
   );
@@ -220,6 +243,36 @@ class RadhaDatabase extends _$RadhaDatabase {
           (t) => t.fetchedAt.isSmallerThanValue(cutoff.millisecondsSinceEpoch),
         ))
         .go();
+  }
+
+  // ── Cached expiry-list queries ────────────────────────────────────────
+  //
+  // No TTL eviction here (unlike cached products, which accumulate one row
+  // per distinct EAN ever scanned): the key space is bounded to 3 rows per
+  // store (one per Soon/Expired/Safe tab) and each row is overwritten on
+  // every successful live fetch, so staleness is naturally capped at "since
+  // the last time this tab loaded with connectivity" — never unbounded.
+
+  /// Upserts the list payload for [cacheKey] with `fetchedAt = now`.
+  Future<void> cacheExpiryList({
+    required String cacheKey,
+    required String payloadJson,
+    required DateTime fetchedAt,
+  }) {
+    return into(cachedExpiryLists).insertOnConflictUpdate(
+      CachedExpiryListsCompanion.insert(
+        cacheKey: cacheKey,
+        payloadJson: payloadJson,
+        fetchedAt: fetchedAt.millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  /// Returns the cached row for [cacheKey] if any.
+  Future<CachedExpiryList?> getCachedExpiryList(String cacheKey) {
+    return (select(
+      cachedExpiryLists,
+    )..where((t) => t.cacheKey.equals(cacheKey))).getSingleOrNull();
   }
 }
 

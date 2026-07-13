@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +10,7 @@ import '../../core/auth/auth_controller.dart';
 import '../../core/mode/app_mode_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/dto/expiry_dto.dart';
+import '../../core/offline/db.dart';
 import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
 import '../../design/theme.dart';
@@ -100,23 +104,58 @@ final _expiryStatsProvider = FutureProvider.autoDispose
   );
 });
 
+String _expiryCacheKey(_ExpiryQueryArgs args) =>
+    '${args.storeId}|${args.apiStatus}';
+
 /// First-page provider per status. Pagination beyond page one is handled in
 /// local state inside [_ExpiryTabContent]; this provider owns the initial
 /// fetch + pull-to-refresh invalidation.
+///
+/// Offline fallback: every successful fetch is mirrored into the local
+/// Drift cache (`CachedExpiryLists`, keyed per store+tab) so a CSV import —
+/// or any other write — stays visible on this device even without
+/// connectivity afterward. This is a per-device viewing cache, not a
+/// substitute for the server's own backups: it only ever reflects whatever
+/// this one phone last successfully saw for this one store+tab.
 final _expiryFirstPageProvider = FutureProvider.autoDispose
     .family<PaginatedExpiries, _ExpiryQueryArgs>((ref, args) async {
       final client = ref.watch(apiClientProvider);
-      // The backend has no cursor/offset pagination at all (confirmed:
-      // ListExpiryRecordsQuerySchema only accepts a flat `limit`, max
-      // 200) -- _cursor below will therefore always stay null and
-      // _loadMore() never actually fires. Requesting the backend's max
-      // up front, matching the stats query below, covers realistic
-      // usage instead of silently truncating at 20.
-      return client.getExpiries(
-        status: args.apiStatus,
-        storeId: args.storeId,
-        limit: 200,
-      );
+      final db = ref.watch(radhaDatabaseProvider);
+      final cacheKey = _expiryCacheKey(args);
+      try {
+        // The backend has no cursor/offset pagination at all (confirmed:
+        // ListExpiryRecordsQuerySchema only accepts a flat `limit`, max
+        // 200) -- _cursor below will therefore always stay null and
+        // _loadMore() never actually fires. Requesting the backend's max
+        // up front, matching the stats query below, covers realistic
+        // usage instead of silently truncating at 20.
+        final result = await client.getExpiries(
+          status: args.apiStatus,
+          storeId: args.storeId,
+          limit: 200,
+        );
+        unawaited(
+          db.cacheExpiryList(
+            cacheKey: cacheKey,
+            payloadJson: jsonEncode(
+              result.items.map((e) => e.toJson()).toList(),
+            ),
+            fetchedAt: DateTime.now(),
+          ),
+        );
+        return result;
+      } catch (e) {
+        final cached = await db.getCachedExpiryList(cacheKey);
+        if (cached == null) rethrow;
+        final items = (jsonDecode(cached.payloadJson) as List<dynamic>)
+            .map((e) => ExpiryResponse.fromJson(e as Map<String, dynamic>))
+            .toList();
+        return PaginatedExpiries(
+          items: items,
+          total: items.length,
+          isFromCache: true,
+        );
+      }
     });
 
 /// Expiry list screen — a segmented Near-expiry / Expired / Safe view, each
@@ -687,70 +726,84 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
         final items = <ExpiryResponse>[...page.items, ..._more];
 
         if (items.isEmpty) {
-          return NotificationListener<ScrollNotification>(
-            onNotification: _handleScrollNotification,
-            child: RefreshIndicator(
-              color: RadhaColors.primary,
-              onRefresh: _refresh,
-              child: ListView(
-                key: PageStorageKey<String>(widget.query.uiStatus),
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: BouncingScrollPhysics(),
-                ),
-                children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.14),
-                  Center(
-                    child: EmptyState(
-                      illustration: MorCompanion(
-                        mood: _emptyMood(widget.query.uiStatus),
-                        size: 104,
+          return Column(
+            children: [
+              if (page.isFromCache) const _OfflineCacheBanner(),
+              Expanded(
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _handleScrollNotification,
+                  child: RefreshIndicator(
+                    color: RadhaColors.primary,
+                    onRefresh: _refresh,
+                    child: ListView(
+                      key: PageStorageKey<String>(widget.query.uiStatus),
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
                       ),
-                      title: _emptyTitle(l10n, widget.query.uiStatus),
-                      body: _emptyMessage(l10n, widget.query.uiStatus),
+                      children: [
+                        SizedBox(height: MediaQuery.of(context).size.height * 0.14),
+                        Center(
+                          child: EmptyState(
+                            illustration: MorCompanion(
+                              mood: _emptyMood(widget.query.uiStatus),
+                              size: 104,
+                            ),
+                            title: _emptyTitle(l10n, widget.query.uiStatus),
+                            body: _emptyMessage(l10n, widget.query.uiStatus),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           );
         }
 
-        return NotificationListener<ScrollNotification>(
-          onNotification: _handleScrollNotification,
-          child: RefreshIndicator(
-            color: RadhaColors.primary,
-            onRefresh: _refresh,
-            child: ListView.separated(
-              key: PageStorageKey<String>(widget.query.uiStatus),
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
-              padding: const EdgeInsets.fromLTRB(
-                RadhaSpacing.space20,
-                RadhaSpacing.space4,
-                RadhaSpacing.space20,
-                RadhaSpacing.space32 + 72, // room for the FAB
-              ),
-              itemCount: items.length + (_loadingMore ? 1 : 0),
-              separatorBuilder: (_, _) =>
-                  const SizedBox(height: RadhaSpacing.space8),
-              itemBuilder: (context, index) {
-                if (index >= items.length) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: RadhaSpacing.space16),
-                    child: Center(
-                      child: SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
+        return Column(
+          children: [
+            if (page.isFromCache) const _OfflineCacheBanner(),
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _handleScrollNotification,
+                child: RefreshIndicator(
+                  color: RadhaColors.primary,
+                  onRefresh: _refresh,
+                  child: ListView.separated(
+                    key: PageStorageKey<String>(widget.query.uiStatus),
+                    physics: const AlwaysScrollableScrollPhysics(
+                      parent: BouncingScrollPhysics(),
                     ),
-                  );
-                }
-                return _ExpiryListTile(item: items[index]);
-              },
+                    padding: const EdgeInsets.fromLTRB(
+                      RadhaSpacing.space20,
+                      RadhaSpacing.space4,
+                      RadhaSpacing.space20,
+                      RadhaSpacing.space32 + 72, // room for the FAB
+                    ),
+                    itemCount: items.length + (_loadingMore ? 1 : 0),
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: RadhaSpacing.space8),
+                    itemBuilder: (context, index) {
+                      if (index >= items.length) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: RadhaSpacing.space16),
+                          child: Center(
+                            child: SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        );
+                      }
+                      return _ExpiryListTile(item: items[index]);
+                    },
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         );
       },
     );
@@ -973,6 +1026,53 @@ class _ExpiryListSkeleton extends StatelessWidget {
 }
 
 // _EmptyIllustration removed — empty states now use MorCompanion.
+
+/// Shown above the list when the live fetch failed and this tab is falling
+/// back to the on-device cache (`_expiryFirstPageProvider`) — makes it clear
+/// the data may be stale rather than letting it look identical to a live
+/// load. Pull-to-refresh still works underneath and clears this the moment
+/// connectivity returns.
+class _OfflineCacheBanner extends StatelessWidget {
+  const _OfflineCacheBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(
+        RadhaSpacing.space20,
+        RadhaSpacing.space4,
+        RadhaSpacing.space20,
+        RadhaSpacing.space8,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: RadhaSpacing.space12,
+        vertical: RadhaSpacing.space8,
+      ),
+      decoration: BoxDecoration(
+        color: RadhaColors.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
+        border: Border.all(color: RadhaColors.warning),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, size: 16, color: RadhaColors.warning),
+          const SizedBox(width: RadhaSpacing.space8),
+          Expanded(
+            child: Text(
+              'Offline — showing data last saved on this phone. Pull down to refresh.',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: RadhaColors.warning,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _ExpiryError extends StatelessWidget {
   const _ExpiryError({required this.onRetry});

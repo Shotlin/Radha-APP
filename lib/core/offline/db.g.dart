@@ -859,11 +859,290 @@ class CachedProductsCompanion extends UpdateCompanion<CachedProduct> {
   }
 }
 
+class $CachedExpiryListsTable extends CachedExpiryLists
+    with TableInfo<$CachedExpiryListsTable, CachedExpiryList> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CachedExpiryListsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _cacheKeyMeta = const VerificationMeta(
+    'cacheKey',
+  );
+  @override
+  late final GeneratedColumn<String> cacheKey = GeneratedColumn<String>(
+    'cache_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _fetchedAtMeta = const VerificationMeta(
+    'fetchedAt',
+  );
+  @override
+  late final GeneratedColumn<int> fetchedAt = GeneratedColumn<int>(
+    'fetched_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [cacheKey, payloadJson, fetchedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cached_expiry_lists';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<CachedExpiryList> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('cache_key')) {
+      context.handle(
+        _cacheKeyMeta,
+        cacheKey.isAcceptableOrUnknown(data['cache_key']!, _cacheKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_cacheKeyMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('fetched_at')) {
+      context.handle(
+        _fetchedAtMeta,
+        fetchedAt.isAcceptableOrUnknown(data['fetched_at']!, _fetchedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fetchedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {cacheKey};
+  @override
+  CachedExpiryList map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedExpiryList(
+      cacheKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cache_key'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      fetchedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}fetched_at'],
+      )!,
+    );
+  }
+
+  @override
+  $CachedExpiryListsTable createAlias(String alias) {
+    return $CachedExpiryListsTable(attachedDatabase, alias);
+  }
+}
+
+class CachedExpiryList extends DataClass
+    implements Insertable<CachedExpiryList> {
+  final String cacheKey;
+
+  /// JSON-encoded `List<ExpiryResponse>` (each item via `.toJson()`).
+  final String payloadJson;
+  final int fetchedAt;
+  const CachedExpiryList({
+    required this.cacheKey,
+    required this.payloadJson,
+    required this.fetchedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['cache_key'] = Variable<String>(cacheKey);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['fetched_at'] = Variable<int>(fetchedAt);
+    return map;
+  }
+
+  CachedExpiryListsCompanion toCompanion(bool nullToAbsent) {
+    return CachedExpiryListsCompanion(
+      cacheKey: Value(cacheKey),
+      payloadJson: Value(payloadJson),
+      fetchedAt: Value(fetchedAt),
+    );
+  }
+
+  factory CachedExpiryList.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedExpiryList(
+      cacheKey: serializer.fromJson<String>(json['cacheKey']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      fetchedAt: serializer.fromJson<int>(json['fetchedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'cacheKey': serializer.toJson<String>(cacheKey),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'fetchedAt': serializer.toJson<int>(fetchedAt),
+    };
+  }
+
+  CachedExpiryList copyWith({
+    String? cacheKey,
+    String? payloadJson,
+    int? fetchedAt,
+  }) => CachedExpiryList(
+    cacheKey: cacheKey ?? this.cacheKey,
+    payloadJson: payloadJson ?? this.payloadJson,
+    fetchedAt: fetchedAt ?? this.fetchedAt,
+  );
+  CachedExpiryList copyWithCompanion(CachedExpiryListsCompanion data) {
+    return CachedExpiryList(
+      cacheKey: data.cacheKey.present ? data.cacheKey.value : this.cacheKey,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      fetchedAt: data.fetchedAt.present ? data.fetchedAt.value : this.fetchedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedExpiryList(')
+          ..write('cacheKey: $cacheKey, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('fetchedAt: $fetchedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(cacheKey, payloadJson, fetchedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedExpiryList &&
+          other.cacheKey == this.cacheKey &&
+          other.payloadJson == this.payloadJson &&
+          other.fetchedAt == this.fetchedAt);
+}
+
+class CachedExpiryListsCompanion extends UpdateCompanion<CachedExpiryList> {
+  final Value<String> cacheKey;
+  final Value<String> payloadJson;
+  final Value<int> fetchedAt;
+  final Value<int> rowid;
+  const CachedExpiryListsCompanion({
+    this.cacheKey = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.fetchedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CachedExpiryListsCompanion.insert({
+    required String cacheKey,
+    required String payloadJson,
+    required int fetchedAt,
+    this.rowid = const Value.absent(),
+  }) : cacheKey = Value(cacheKey),
+       payloadJson = Value(payloadJson),
+       fetchedAt = Value(fetchedAt);
+  static Insertable<CachedExpiryList> custom({
+    Expression<String>? cacheKey,
+    Expression<String>? payloadJson,
+    Expression<int>? fetchedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (cacheKey != null) 'cache_key': cacheKey,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (fetchedAt != null) 'fetched_at': fetchedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CachedExpiryListsCompanion copyWith({
+    Value<String>? cacheKey,
+    Value<String>? payloadJson,
+    Value<int>? fetchedAt,
+    Value<int>? rowid,
+  }) {
+    return CachedExpiryListsCompanion(
+      cacheKey: cacheKey ?? this.cacheKey,
+      payloadJson: payloadJson ?? this.payloadJson,
+      fetchedAt: fetchedAt ?? this.fetchedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (cacheKey.present) {
+      map['cache_key'] = Variable<String>(cacheKey.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (fetchedAt.present) {
+      map['fetched_at'] = Variable<int>(fetchedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedExpiryListsCompanion(')
+          ..write('cacheKey: $cacheKey, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('fetchedAt: $fetchedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$RadhaDatabase extends GeneratedDatabase {
   _$RadhaDatabase(QueryExecutor e) : super(e);
   $RadhaDatabaseManager get managers => $RadhaDatabaseManager(this);
   late final $PendingWritesTable pendingWrites = $PendingWritesTable(this);
   late final $CachedProductsTable cachedProducts = $CachedProductsTable(this);
+  late final $CachedExpiryListsTable cachedExpiryLists =
+      $CachedExpiryListsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -871,6 +1150,7 @@ abstract class _$RadhaDatabase extends GeneratedDatabase {
   List<DatabaseSchemaEntity> get allSchemaEntities => [
     pendingWrites,
     cachedProducts,
+    cachedExpiryLists,
   ];
 }
 
@@ -1322,6 +1602,183 @@ typedef $$CachedProductsTableProcessedTableManager =
       CachedProduct,
       PrefetchHooks Function()
     >;
+typedef $$CachedExpiryListsTableCreateCompanionBuilder =
+    CachedExpiryListsCompanion Function({
+      required String cacheKey,
+      required String payloadJson,
+      required int fetchedAt,
+      Value<int> rowid,
+    });
+typedef $$CachedExpiryListsTableUpdateCompanionBuilder =
+    CachedExpiryListsCompanion Function({
+      Value<String> cacheKey,
+      Value<String> payloadJson,
+      Value<int> fetchedAt,
+      Value<int> rowid,
+    });
+
+class $$CachedExpiryListsTableFilterComposer
+    extends Composer<_$RadhaDatabase, $CachedExpiryListsTable> {
+  $$CachedExpiryListsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get cacheKey => $composableBuilder(
+    column: $table.cacheKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get fetchedAt => $composableBuilder(
+    column: $table.fetchedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$CachedExpiryListsTableOrderingComposer
+    extends Composer<_$RadhaDatabase, $CachedExpiryListsTable> {
+  $$CachedExpiryListsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get cacheKey => $composableBuilder(
+    column: $table.cacheKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get fetchedAt => $composableBuilder(
+    column: $table.fetchedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$CachedExpiryListsTableAnnotationComposer
+    extends Composer<_$RadhaDatabase, $CachedExpiryListsTable> {
+  $$CachedExpiryListsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get cacheKey =>
+      $composableBuilder(column: $table.cacheKey, builder: (column) => column);
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get fetchedAt =>
+      $composableBuilder(column: $table.fetchedAt, builder: (column) => column);
+}
+
+class $$CachedExpiryListsTableTableManager
+    extends
+        RootTableManager<
+          _$RadhaDatabase,
+          $CachedExpiryListsTable,
+          CachedExpiryList,
+          $$CachedExpiryListsTableFilterComposer,
+          $$CachedExpiryListsTableOrderingComposer,
+          $$CachedExpiryListsTableAnnotationComposer,
+          $$CachedExpiryListsTableCreateCompanionBuilder,
+          $$CachedExpiryListsTableUpdateCompanionBuilder,
+          (
+            CachedExpiryList,
+            BaseReferences<
+              _$RadhaDatabase,
+              $CachedExpiryListsTable,
+              CachedExpiryList
+            >,
+          ),
+          CachedExpiryList,
+          PrefetchHooks Function()
+        > {
+  $$CachedExpiryListsTableTableManager(
+    _$RadhaDatabase db,
+    $CachedExpiryListsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CachedExpiryListsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CachedExpiryListsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CachedExpiryListsTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> cacheKey = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> fetchedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => CachedExpiryListsCompanion(
+                cacheKey: cacheKey,
+                payloadJson: payloadJson,
+                fetchedAt: fetchedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String cacheKey,
+                required String payloadJson,
+                required int fetchedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => CachedExpiryListsCompanion.insert(
+                cacheKey: cacheKey,
+                payloadJson: payloadJson,
+                fetchedAt: fetchedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$CachedExpiryListsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$RadhaDatabase,
+      $CachedExpiryListsTable,
+      CachedExpiryList,
+      $$CachedExpiryListsTableFilterComposer,
+      $$CachedExpiryListsTableOrderingComposer,
+      $$CachedExpiryListsTableAnnotationComposer,
+      $$CachedExpiryListsTableCreateCompanionBuilder,
+      $$CachedExpiryListsTableUpdateCompanionBuilder,
+      (
+        CachedExpiryList,
+        BaseReferences<
+          _$RadhaDatabase,
+          $CachedExpiryListsTable,
+          CachedExpiryList
+        >,
+      ),
+      CachedExpiryList,
+      PrefetchHooks Function()
+    >;
 
 class $RadhaDatabaseManager {
   final _$RadhaDatabase _db;
@@ -1330,4 +1787,6 @@ class $RadhaDatabaseManager {
       $$PendingWritesTableTableManager(_db, _db.pendingWrites);
   $$CachedProductsTableTableManager get cachedProducts =>
       $$CachedProductsTableTableManager(_db, _db.cachedProducts);
+  $$CachedExpiryListsTableTableManager get cachedExpiryLists =>
+      $$CachedExpiryListsTableTableManager(_db, _db.cachedExpiryLists);
 }

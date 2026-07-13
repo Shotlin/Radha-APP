@@ -27,7 +27,7 @@ class CreateExpiryDto {
   Map<String, dynamic> toJson() => _$CreateExpiryDtoToJson(this);
 }
 
-@JsonSerializable(createToJson: false)
+@JsonSerializable(includeIfNull: false)
 class ExpiryResponse {
   const ExpiryResponse({
     required this.id,
@@ -64,6 +64,10 @@ class ExpiryResponse {
 
   factory ExpiryResponse.fromJson(Map<String, dynamic> json) =>
       _$ExpiryResponseFromJson(json);
+
+  /// Round-trips a fetched record back to JSON for the offline list cache
+  /// (`expiry_list_screen.dart`) — not used for any outgoing API call.
+  Map<String, dynamic> toJson() => _$ExpiryResponseToJson(this);
 }
 
 @JsonSerializable(createToJson: false)
@@ -72,11 +76,19 @@ class PaginatedExpiries {
     required this.items,
     required this.total,
     this.cursor,
+    this.isFromCache = false,
   });
 
   final List<ExpiryResponse> items;
   final int total;
   final String? cursor;
+
+  /// True when this result was served from the on-device offline cache
+  /// (`expiry_list_screen.dart`'s fetch-with-fallback) rather than a live
+  /// server response — never set by the JSON parser, only by that fallback
+  /// path constructing this object directly.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  final bool isFromCache;
 
   factory PaginatedExpiries.fromJson(Map<String, dynamic> json) =>
       _$PaginatedExpiriesFromJson(json);

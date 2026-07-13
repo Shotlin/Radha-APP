@@ -31,6 +31,20 @@ ExpiryResponse _$ExpiryResponseFromJson(Map<String, dynamic> json) =>
       status: json['status'] as String?,
     );
 
+Map<String, dynamic> _$ExpiryResponseToJson(
+  ExpiryResponse instance,
+) => <String, dynamic>{
+  'id': instance.id,
+  'productId': instance.productId,
+  if (instance.productName case final value?) 'productName': value,
+  'expiryDate': instance.expiryDate,
+  if (instance.manufactureDate case final value?) 'manufactureDate': value,
+  if (instance.batchNumber case final value?) 'batchNumber': value,
+  if (instance.quantity case final value?) 'quantity': value,
+  if (instance.remainingQuantity case final value?) 'remainingQuantity': value,
+  if (instance.status case final value?) 'status': value,
+};
+
 PaginatedExpiries _$PaginatedExpiriesFromJson(Map<String, dynamic> json) =>
     PaginatedExpiries(
       items: (json['items'] as List<dynamic>)
