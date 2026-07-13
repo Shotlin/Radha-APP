@@ -255,6 +255,11 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
     }
 
     if (!mounted) return;
+    if (record?.status == 'expired') {
+      // Distinct, stronger alert than the barcode-confirm haptic — an
+      // expired product needs to grab attention mid-scan, not just click.
+      HapticFeedback.vibrate();
+    }
     setState(() {
       _lookingUp = false;
       _productId = productId;
@@ -466,6 +471,15 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
                 _SheetRow(label: 'Expiry date', value: _fmtDate(record.expiryDate)),
                 const SizedBox(height: 8),
                 _SheetRow(label: 'Mfg date', value: _fmtDate(record.manufactureDate)),
+                const SizedBox(height: 16),
+                _StatusPill(status: record.status),
+                if (record.status == 'expired') ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'This product has expired — do not sell or use it.',
+                    style: TextStyle(color: RadhaColors.danger, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -650,6 +664,48 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
 }
 
 // ── Small helper widgets ─────────────────────────────────────────────────
+
+/// Green "Safe" / yellow "Soon" / red "Expired" indicator on the found
+/// sheet — mirrors the backend's `status` field (green|yellow|red|expired,
+/// tenant-threshold-aware) rather than recomputing from the raw date, so it
+/// always agrees with the Soon/Expired/Safe tabs on the Expiry tracker.
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.status});
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (color, label) = switch (status) {
+      'green' => (RadhaColors.success, 'Safe'),
+      'yellow' || 'red' => (RadhaColors.warning, 'Soon'),
+      'expired' => (RadhaColors.danger, 'Expired'),
+      _ => (RadhaColors.inkMuted, 'Unknown'),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _SavedFlash extends StatelessWidget {
   const _SavedFlash();
