@@ -90,6 +90,7 @@ dependencies:
   # the Kotlin plugin, matching every other KGP-based plugin already working
   # in this project. (10.3.11 exists but is publisher-retracted.)
   file_picker: 10.3.10
+  vibration: ^3.2.0
 
 dev_dependencies:
   flutter_test:

@@ -28,6 +28,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:uuid/uuid.dart';
+import 'package:vibration/vibration.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/network/api_client.dart';
@@ -260,7 +261,7 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
       // expired product needs to grab attention mid-scan, not just click.
       // A single vibrate() reads as a faint click on many devices, so this
       // fires two short pulses plus a system alert sound.
-      _playExpiredAlert();
+      unawaited(_playExpiredAlert());
     }
     setState(() {
       _lookingUp = false;
@@ -278,14 +279,25 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
   }
 
   /// Two short vibration pulses plus the system alert sound — fires once
-  /// when the sheet opens on an expired product. Both `HapticFeedback` and
-  /// `SystemSound` are built into Flutter (no new dependency/asset needed).
-  void _playExpiredAlert() {
-    HapticFeedback.vibrate();
+  /// when the sheet opens on an expired product.
+  ///
+  /// Uses the `vibration` package's direct `Vibrator.vibrate()` call, not
+  /// `HapticFeedback.vibrate()` — the latter routes through Android's
+  /// "system haptic feedback" setting (`View.performHapticFeedback`), which
+  /// several common device makers mute independently of the app's own
+  /// VIBRATE permission, so it can silently no-op even when correctly
+  /// declared. This bypasses that entirely.
+  Future<void> _playExpiredAlert() async {
     SystemSound.play(SystemSoundType.alert);
-    Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) HapticFeedback.vibrate();
-    });
+    try {
+      if (await Vibration.hasVibrator()) {
+        // pattern: [wait, buzz, wait, buzz] in ms — two distinct pulses.
+        Vibration.vibrate(pattern: [0, 300, 150, 300]);
+      }
+    } catch (_) {
+      // No vibrator hardware / platform doesn't support it — sound alone
+      // still fired above, so the expired hit isn't silent either way.
+    }
   }
 
   void _adjustQty(int delta) {
