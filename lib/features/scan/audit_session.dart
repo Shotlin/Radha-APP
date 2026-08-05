@@ -72,8 +72,37 @@ class AuditSessionEntry {
 class AuditSessionController extends ValueNotifier<List<AuditSessionEntry>> {
   AuditSessionController() : super(const []);
 
-  void add(AuditSessionEntry entry) {
-    value = [...value, entry];
+  /// Adds a new entry, or updates an existing one for the same
+  /// `expiryRecordId` in place (keeping its original position in the
+  /// list). Scanning the same product twice in one session — e.g. once
+  /// just to look, then again to adjust quantity — updates that one row
+  /// rather than appending a duplicate.
+  ///
+  /// [entry.previousQuantity] is only honoured on the *first* upsert for
+  /// a given record; later upserts keep the original baseline so the
+  /// summary's "before → after" always compares against what the shelf
+  /// actually held when this session started auditing that product, not
+  /// against an intermediate rescan.
+  void upsert(AuditSessionEntry entry) {
+    final index = value.indexWhere((e) => e.expiryRecordId == entry.expiryRecordId);
+    if (index == -1) {
+      value = [...value, entry];
+      return;
+    }
+    final next = [...value];
+    next[index] = AuditSessionEntry(
+      expiryRecordId: entry.expiryRecordId,
+      productName: entry.productName,
+      ean: entry.ean,
+      expiryDate: entry.expiryDate,
+      status: entry.status,
+      quantity: entry.quantity,
+      previousQuantity: next[index].previousQuantity,
+      scannedAt: entry.scannedAt,
+      batchNumber: entry.batchNumber,
+      category: entry.category,
+    );
+    value = next;
   }
 
   void clear() {

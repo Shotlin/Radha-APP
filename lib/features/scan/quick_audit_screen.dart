@@ -272,6 +272,29 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
       // fires two short pulses plus a system alert sound.
       unawaited(_playExpiredAlert());
     }
+    if (record != null) {
+      // Log this scan into the session immediately — whether or not the
+      // user ends up touching the quantity stepper. "I scanned it and
+      // confirmed the shelf matches what's tracked" is itself an audit
+      // action worth recording; it should never require an unrelated
+      // Save tap just to appear in the Finish-audit list. A rescan of the
+      // same product later in this session (e.g. after adjusting
+      // quantity and saving) updates this same row via `upsert`.
+      final qty = record.remainingQuantity ?? record.quantity ?? 0;
+      _session.upsert(
+        AuditSessionEntry(
+          expiryRecordId: record.id,
+          productName: productName ?? record.productName ?? ean,
+          ean: record.ean ?? ean,
+          expiryDate: record.expiryDate,
+          status: record.status,
+          quantity: qty,
+          previousQuantity: qty,
+          scannedAt: DateTime.now(),
+          batchNumber: record.batchNumber,
+        ),
+      );
+    }
     setState(() {
       _lookingUp = false;
       _productId = productId;
@@ -333,7 +356,10 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
             idempotencyKey: const Uuid().v4(),
           );
       if (!mounted) return;
-      _session.add(
+      // Same expiryRecordId as the immediate-on-scan entry `_lookup()`
+      // already logged — `upsert` updates that row's quantity/status in
+      // place rather than adding a second entry for one physical scan.
+      _session.upsert(
         AuditSessionEntry(
           expiryRecordId: record.id,
           productName: _productName ?? record.productName ?? _lookupEan ?? 'Product',
