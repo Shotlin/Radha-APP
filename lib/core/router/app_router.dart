@@ -30,6 +30,8 @@ import '../../features/profile/profile_screen.dart';
 import '../../features/recall/recall_alerts_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/saved_products/saved_products_screen.dart';
+import '../../features/scan/audit_session.dart';
+import '../../features/scan/audit_summary_screen.dart';
 import '../../features/scan/quick_audit_screen.dart';
 import '../../features/scan/ean_audit_screen.dart';
 import '../../features/scan/label_scan_screen.dart';
@@ -81,6 +83,9 @@ class AppRoute {
   static const String labelScan = '/scan/label';
   // Batch-aware crowd-sourced expiry scanner (Phase 9 / Feature B).
   static const String batchScan = '/scan/batch';
+  // Quick Audit's post-scan session summary — one row per product
+  // scanned/saved during that camera session, plus an Excel download.
+  static const String quickAuditSummary = '/scan/batch/summary';
   static const String expiry = '/expiry';
   static const String expiryNew = '/expiry/new';
   static const String expiryCsvImportReview = '/expiry/import/review';
@@ -366,6 +371,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'batchScan',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (context, state) => const QuickAuditScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.quickAuditSummary,
+        name: 'quickAuditSummary',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (context, state) => AuditSummaryScreen(
+          entries: (state.extra as List<AuditSessionEntry>?) ?? const [],
+        ),
       ),
       GoRoute(
         path: AppRoute.expiryNew,

@@ -2771,6 +2771,34 @@ class AppLocalizationsTe extends AppLocalizations {
   }
 
   @override
+  String get quickAuditSummaryTitle => 'Audit summary';
+
+  @override
+  String get quickAuditSummaryEmpty => 'No products scanned this session.';
+
+  @override
+  String get quickAuditDownload => 'Download report';
+
+  @override
+  String get quickAuditDownloadFailed =>
+      'Could not generate the report. Please try again.';
+
+  @override
+  String quickAuditFinishButton(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Finish audit ($count)',
+      one: 'Finish audit (1)',
+      zero: 'Finish audit',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get quickAuditSavedThisSession => 'Saved this session';
+
+  @override
   String get exTitle => 'కొత్త గడువు రికార్డు';
 
   @override

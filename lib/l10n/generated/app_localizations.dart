@@ -4894,6 +4894,42 @@ abstract class AppLocalizations {
   /// **'Qty {qty}'**
   String expiryCalendarQtyLabel(String qty);
 
+  /// No description provided for @quickAuditSummaryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Audit summary'**
+  String get quickAuditSummaryTitle;
+
+  /// No description provided for @quickAuditSummaryEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No products scanned this session.'**
+  String get quickAuditSummaryEmpty;
+
+  /// No description provided for @quickAuditDownload.
+  ///
+  /// In en, this message translates to:
+  /// **'Download report'**
+  String get quickAuditDownload;
+
+  /// No description provided for @quickAuditDownloadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not generate the report. Please try again.'**
+  String get quickAuditDownloadFailed;
+
+  /// Bottom counter/finish button on the Quick Audit camera screen.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =0{Finish audit} =1{Finish audit (1)} other{Finish audit ({count})}}'**
+  String quickAuditFinishButton(int count);
+
+  /// No description provided for @quickAuditSavedThisSession.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved this session'**
+  String get quickAuditSavedThisSession;
+
   /// No description provided for @exTitle.
   ///
   /// In en, this message translates to:

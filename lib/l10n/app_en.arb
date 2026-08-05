@@ -1461,11 +1461,21 @@
     "description": "Days since expiry for already-expired items in the calendar detail list.",
     "placeholders": { "days": { "type": "int", "example": "3" } }
   },
-  "expiryCalendarQtyLabel": "Qty {qty}",
-  "@expiryCalendarQtyLabel": {
-    "description": "Quantity label shown per product in the calendar detail list.",
-    "placeholders": { "qty": { "type": "String", "example": "12" } }
+ "expiryCalendarQtyLabel": "Qty {qty}",
+ "@expiryCalendarQtyLabel": {
+   "description": "Quantity label shown per product in the calendar detail list.",
+   "placeholders": { "qty": { "type": "String", "example": "12" } }
+ },
+  "quickAuditSummaryTitle": "Audit summary",
+  "quickAuditSummaryEmpty": "No products scanned this session.",
+  "quickAuditDownload": "Download report",
+  "quickAuditDownloadFailed": "Could not generate the report. Please try again.",
+  "quickAuditFinishButton": "{count, plural, =0{Finish audit} =1{Finish audit (1)} other{Finish audit ({count})}}",
+  "@quickAuditFinishButton": {
+    "description": "Bottom counter/finish button on the Quick Audit camera screen.",
+    "placeholders": { "count": { "type": "int", "example": "5" } }
   },
+  "quickAuditSavedThisSession": "Saved this session",
   "exTitle": "New Expiry Record",
   "exMfgAfterExpiry": "Manufacturing date cannot be after expiry date",
   "exSelectMfg": "Select manufacturing date",

@@ -36,6 +36,8 @@ import '../../core/network/dto/expiry_dto.dart';
 import '../../core/offline/sync_service.dart';
 import '../../core/router/app_router.dart';
 import '../../design/tokens.dart';
+import '../../l10n/generated/app_localizations.dart';
+import 'audit_session.dart';
 import 'camera_image_converter.dart';
 import 'utils/ean_validator.dart';
 
@@ -64,6 +66,12 @@ class QuickAuditScreen extends ConsumerStatefulWidget {
 
 class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
     with WidgetsBindingObserver {
+  // ── Session tracking ─────────────────────────────────────────────────
+  // One entry per product saved during this camera session — powers the
+  // bottom "Finish audit (N)" counter and the summary/export screen it
+  // opens into. Scoped to this screen's lifetime, not persisted.
+  final AuditSessionController _session = AuditSessionController();
+
   // ── Camera ────────────────────────────────────────────────────────────
   CameraController? _controller;
   BarcodeScanner? _barcodeScanner;
@@ -119,6 +127,7 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _teardown();
+    _session.dispose();
     super.dispose();
   }
 
@@ -324,6 +333,19 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
             idempotencyKey: const Uuid().v4(),
           );
       if (!mounted) return;
+      _session.add(
+        AuditSessionEntry(
+          expiryRecordId: record.id,
+          productName: _productName ?? record.productName ?? _lookupEan ?? 'Product',
+          ean: record.ean ?? _lookupEan,
+          expiryDate: record.expiryDate,
+          status: record.status,
+          quantity: _pendingQty,
+          previousQuantity: _originalQty ?? _pendingQty,
+          scannedAt: DateTime.now(),
+          batchNumber: record.batchNumber,
+        ),
+      );
       setState(() {
         _saving = false;
         _justSaved = true;
@@ -365,6 +387,11 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
     } catch (_) {}
   }
 
+  void _finishAudit() {
+    final entries = List<AuditSessionEntry>.from(_session.value);
+    context.push(AppRoute.quickAuditSummary, extra: entries);
+  }
+
   // ── Build ────────────────────────────────────────────────────────────
 
   @override
@@ -381,10 +408,61 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
             _buildScanFrame(),
             _buildTopRow(),
             _buildStatusChip(),
+            if (_sheet == _SheetKind.none) _buildFinishButton(),
             if (_sheet == _SheetKind.found) _buildFoundSheet(),
             if (_sheet == _SheetKind.notFound) _buildNotFoundSheet(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Bottom counter/finish button — starts at "Finish audit" (0) and
+  /// updates its count live as each scan is saved. Tapping it any time
+  /// (including at 0) opens the summary screen so the user can always
+  /// bail out to a normal view; an empty session just shows the empty
+  /// state there instead of a dead end.
+  Widget _buildFinishButton() {
+    return Positioned(
+      left: RadhaSpacing.space16,
+      right: RadhaSpacing.space16,
+      bottom: RadhaSpacing.space16,
+      child: ValueListenableBuilder<List<AuditSessionEntry>>(
+        valueListenable: _session,
+        builder: (context, entries, _) {
+          final l10n = AppLocalizations.of(context);
+          return SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _finishAudit,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: entries.isEmpty
+                    ? RadhaColors.ink.withValues(alpha: 0.65)
+                    : RadhaColors.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
+                ),
+              ),
+              icon: entries.isEmpty
+                  ? const Icon(Icons.playlist_add_check_rounded, size: 20)
+                  : CircleAvatar(
+                      radius: 11,
+                      backgroundColor: Colors.white,
+                      child: Text(
+                        '${entries.length}',
+                        style: const TextStyle(
+                          color: RadhaColors.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+              label: Text(l10n.quickAuditFinishButton(entries.length)),
+            ),
+          );
+        },
       ),
     );
   }
@@ -453,7 +531,7 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
       status = 'Aim at a product barcode';
     }
     return Positioned(
-      bottom: RadhaSpacing.space32,
+      bottom: RadhaSpacing.space32 * 3,
       left: RadhaSpacing.space16,
       right: RadhaSpacing.space16,
       child: Center(

@@ -549,6 +549,12 @@ abstract class ApiClient {
     @Body() ExportRequestDto body,
   );
 
+  /// `POST /api/v1/reports/export` — ad-hoc export of caller-supplied
+  /// rows. No prior BE-20 report generation needed — used by the Quick
+  /// Audit summary screen to export one scan session directly.
+  @POST('/api/v1/reports/export')
+  Future<ExportResponseDto> exportAdHoc(@Body() AdHocExportRequestDto body);
+
   /// `GET /api/v1/reports/:id/download/:format` — presigned download URL
   /// for a specific format. Mobile leans on this to hand a URL to the
   /// platform browser (`url_launcher`).

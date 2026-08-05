@@ -232,6 +232,47 @@ class GenerateReportResponseDto {
   }
 }
 
+// ─── Ad-hoc export (caller-supplied rows, e.g. a Quick Audit session) ──
+
+/// Request body for `POST /api/v1/reports/export` — exports arbitrary
+/// caller-supplied rows (no BE-20 report needs to exist first). Used by
+/// the Quick Audit summary screen to turn one scan session into a
+/// downloadable spreadsheet without a matching server-side report type.
+class AdHocExportRequestDto {
+  const AdHocExportRequestDto({
+    required this.title,
+    required this.formats,
+    required this.rows,
+    required this.tenantName,
+    this.subtitle,
+    this.summary,
+    this.storeName,
+  });
+
+  final String title;
+  final String? subtitle;
+  final List<String> formats;
+
+  /// Each row's keys become spreadsheet column headers (humanised
+  /// server-side, e.g. `daysLeft` → `Days Left`). A `status` key with
+  /// `red`/`yellow`/`green` values gets automatic Excel row highlighting
+  /// server-side (`ExcelExporterService.applyStatusFormatting`).
+  final List<Map<String, dynamic>> rows;
+  final Map<String, dynamic>? summary;
+  final String tenantName;
+  final String? storeName;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'title': title,
+        if (subtitle != null) 'subtitle': subtitle,
+        'formats': formats,
+        'rows': rows,
+        if (summary != null) 'summary': summary,
+        'tenantName': tenantName,
+        if (storeName != null) 'storeName': storeName,
+      };
+}
+
 // ─── Export an existing report ────────────────────────────────────────
 
 /// Request body for `POST /api/v1/reports/:id/export`.
