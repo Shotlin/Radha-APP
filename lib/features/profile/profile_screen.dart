@@ -19,6 +19,7 @@ import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/auth/mobile_display.dart';
 import '../../core/mode/app_mode_provider.dart';
 import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
@@ -345,13 +346,22 @@ class _IdentityCard extends StatelessWidget {
     );
   }
 
-  /// Picks the best string we have for the user. The auth session today
-  /// only carries `userId`, but if the API later includes a `name` field
-  /// in `CurrentUser` it will surface here automatically.
+  /// Picks the best string we have for the user: a real display name if
+  /// the account has one, otherwise their masked mobile number. Never the
+  /// raw `userId` (an internal UUID) — that used to be the only fallback
+  /// here and read as a broken/placeholder value rather than "this is
+  /// you", since `/auth/me` returns `mobile`/`name` but nothing previously
+  /// threaded them through into the persisted session (see
+  /// `AuthSession.mobile`/`.name`).
   static String _displayName(CurrentUser? user) {
     if (user == null) return 'Guest';
-    if (user.userId.isEmpty) return 'You';
-    return user.userId;
+    final name = user.name;
+    if (name != null && name.isNotEmpty) return name;
+    final mobile = user.mobile;
+    if (mobile != null && mobile.isNotEmpty) {
+      return maskMobileForDisplay(mobile);
+    }
+    return 'You';
   }
 }
 

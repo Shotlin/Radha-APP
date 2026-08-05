@@ -27,7 +27,16 @@ mixin _$AuthSession {
   String? get tenantId => throw _privateConstructorUsedError;
   List<String> get roles => throw _privateConstructorUsedError;
   List<StoreAccess> get stores => throw _privateConstructorUsedError;
-  String? get selectedStoreId => throw _privateConstructorUsedError;
+  String? get selectedStoreId =>
+      throw _privateConstructorUsedError; // The auth session previously only carried `userId` (a UUID), so the
+  // Profile screen and Home greeting had nothing better to display and
+  // fell back to showing the raw UUID — which reads as a broken/demo
+  // placeholder rather than "you're signed in as yourself". `/auth/me`
+  // has always returned `mobile` + `name`; these were just never
+  // threaded through into the persisted session. Both nullable since
+  // `name` is often unset and older stored sessions won't have them.
+  String? get mobile => throw _privateConstructorUsedError;
+  String? get name => throw _privateConstructorUsedError;
 
   /// Serializes this AuthSession to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -54,6 +63,8 @@ abstract class $AuthSessionCopyWith<$Res> {
     List<String> roles,
     List<StoreAccess> stores,
     String? selectedStoreId,
+    String? mobile,
+    String? name,
   });
 }
 
@@ -79,6 +90,8 @@ class _$AuthSessionCopyWithImpl<$Res, $Val extends AuthSession>
     Object? roles = null,
     Object? stores = null,
     Object? selectedStoreId = freezed,
+    Object? mobile = freezed,
+    Object? name = freezed,
   }) {
     return _then(
       _value.copyWith(
@@ -110,6 +123,14 @@ class _$AuthSessionCopyWithImpl<$Res, $Val extends AuthSession>
                 ? _value.selectedStoreId
                 : selectedStoreId // ignore: cast_nullable_to_non_nullable
                       as String?,
+            mobile: freezed == mobile
+                ? _value.mobile
+                : mobile // ignore: cast_nullable_to_non_nullable
+                      as String?,
+            name: freezed == name
+                ? _value.name
+                : name // ignore: cast_nullable_to_non_nullable
+                      as String?,
           )
           as $Val,
     );
@@ -133,6 +154,8 @@ abstract class _$$AuthSessionImplCopyWith<$Res>
     List<String> roles,
     List<StoreAccess> stores,
     String? selectedStoreId,
+    String? mobile,
+    String? name,
   });
 }
 
@@ -157,6 +180,8 @@ class __$$AuthSessionImplCopyWithImpl<$Res>
     Object? roles = null,
     Object? stores = null,
     Object? selectedStoreId = freezed,
+    Object? mobile = freezed,
+    Object? name = freezed,
   }) {
     return _then(
       _$AuthSessionImpl(
@@ -188,6 +213,14 @@ class __$$AuthSessionImplCopyWithImpl<$Res>
             ? _value.selectedStoreId
             : selectedStoreId // ignore: cast_nullable_to_non_nullable
                   as String?,
+        mobile: freezed == mobile
+            ? _value.mobile
+            : mobile // ignore: cast_nullable_to_non_nullable
+                  as String?,
+        name: freezed == name
+            ? _value.name
+            : name // ignore: cast_nullable_to_non_nullable
+                  as String?,
       ),
     );
   }
@@ -204,6 +237,8 @@ class _$AuthSessionImpl implements _AuthSession {
     required final List<String> roles,
     required final List<StoreAccess> stores,
     this.selectedStoreId,
+    this.mobile,
+    this.name,
   }) : _roles = roles,
        _stores = stores;
 
@@ -236,10 +271,21 @@ class _$AuthSessionImpl implements _AuthSession {
 
   @override
   final String? selectedStoreId;
+  // The auth session previously only carried `userId` (a UUID), so the
+  // Profile screen and Home greeting had nothing better to display and
+  // fell back to showing the raw UUID — which reads as a broken/demo
+  // placeholder rather than "you're signed in as yourself". `/auth/me`
+  // has always returned `mobile` + `name`; these were just never
+  // threaded through into the persisted session. Both nullable since
+  // `name` is often unset and older stored sessions won't have them.
+  @override
+  final String? mobile;
+  @override
+  final String? name;
 
   @override
   String toString() {
-    return 'AuthSession(accessToken: $accessToken, refreshToken: $refreshToken, userId: $userId, tenantId: $tenantId, roles: $roles, stores: $stores, selectedStoreId: $selectedStoreId)';
+    return 'AuthSession(accessToken: $accessToken, refreshToken: $refreshToken, userId: $userId, tenantId: $tenantId, roles: $roles, stores: $stores, selectedStoreId: $selectedStoreId, mobile: $mobile, name: $name)';
   }
 
   @override
@@ -257,7 +303,9 @@ class _$AuthSessionImpl implements _AuthSession {
             const DeepCollectionEquality().equals(other._roles, _roles) &&
             const DeepCollectionEquality().equals(other._stores, _stores) &&
             (identical(other.selectedStoreId, selectedStoreId) ||
-                other.selectedStoreId == selectedStoreId));
+                other.selectedStoreId == selectedStoreId) &&
+            (identical(other.mobile, mobile) || other.mobile == mobile) &&
+            (identical(other.name, name) || other.name == name));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -271,6 +319,8 @@ class _$AuthSessionImpl implements _AuthSession {
     const DeepCollectionEquality().hash(_roles),
     const DeepCollectionEquality().hash(_stores),
     selectedStoreId,
+    mobile,
+    name,
   );
 
   /// Create a copy of AuthSession
@@ -296,6 +346,8 @@ abstract class _AuthSession implements AuthSession {
     required final List<String> roles,
     required final List<StoreAccess> stores,
     final String? selectedStoreId,
+    final String? mobile,
+    final String? name,
   }) = _$AuthSessionImpl;
 
   factory _AuthSession.fromJson(Map<String, dynamic> json) =
@@ -314,7 +366,17 @@ abstract class _AuthSession implements AuthSession {
   @override
   List<StoreAccess> get stores;
   @override
-  String? get selectedStoreId;
+  String? get selectedStoreId; // The auth session previously only carried `userId` (a UUID), so the
+  // Profile screen and Home greeting had nothing better to display and
+  // fell back to showing the raw UUID — which reads as a broken/demo
+  // placeholder rather than "you're signed in as yourself". `/auth/me`
+  // has always returned `mobile` + `name`; these were just never
+  // threaded through into the persisted session. Both nullable since
+  // `name` is often unset and older stored sessions won't have them.
+  @override
+  String? get mobile;
+  @override
+  String? get name;
 
   /// Create a copy of AuthSession
   /// with the given fields replaced by the non-null parameter values.

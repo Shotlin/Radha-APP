@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pinput/pinput.dart';
 
 import '../../core/auth/auth_controller.dart';
+import '../../core/auth/mobile_display.dart';
 import '../../core/auth/session_storage.dart';
 import '../../core/network/api_client.dart';
 import '../../core/notifications/push_service.dart';
@@ -84,14 +85,7 @@ class _OtpVerifyScreenState extends ConsumerState<OtpVerifyScreen> {
   }
 
   /// Masks the mobile number: +91 •••••X XXXX (last 4 visible).
-  String get _maskedMobile {
-    final digits = widget.mobile.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 4) return widget.mobile;
-    final last4 = digits.substring(digits.length - 4);
-    final secondLast =
-        digits.length >= 5 ? digits[digits.length - 5] : '';
-    return '+91 •••••$secondLast $last4';
-  }
+  String get _maskedMobile => maskMobileForDisplay(widget.mobile);
 
   Future<void> _verify(String otp) async {
     if (otp.length != 6) return;

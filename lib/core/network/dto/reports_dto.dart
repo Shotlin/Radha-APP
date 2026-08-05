@@ -646,6 +646,20 @@ class DashboardSummaryResponse {
   final List<DashboardTrendPoint> trends;
   final DateTime? generatedAt;
 
+  /// All-zero fallback used when the summary fetch fails but the rest of
+  /// the business dashboard should still render (see
+  /// `business_dashboard_screen.dart`'s `_bizDashProvider`) — every widget
+  /// that consumes this type already renders zero-state gracefully for
+  /// each of these sub-fields individually, so this composes cleanly into
+  /// a "nothing to show yet" dashboard rather than a dead error screen.
+  static const DashboardSummaryResponse empty = DashboardSummaryResponse(
+    storeId: '',
+    totals: DashboardTotals.empty,
+    expiry: DashboardExpiry.empty,
+    scanHealth: DashboardScanHealth.empty,
+    trends: <DashboardTrendPoint>[],
+  );
+
   factory DashboardSummaryResponse.fromJson(Map<String, dynamic> json) {
     return DashboardSummaryResponse(
       storeId: _asString(json['storeId']),

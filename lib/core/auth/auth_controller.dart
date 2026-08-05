@@ -41,6 +41,17 @@ class AuthController extends AsyncNotifier<AuthSession?> {
   /// trigger the GoRouter redirect (auth.isLoading → /splash), which unmounts
   /// the OTP verify screen before it can post the pending onboarding segment.
   /// The verify screen owns its own loading UI via local setState.
+  ///
+  /// IMPORTANT: rethrows on failure (e.g. wrong OTP). `AsyncValue.guard`
+  /// captures the exception into `state` either way (so the router's
+  /// `auth.valueOrNull` reflects the real signed-out state on failure),
+  /// but a bare `await controller.verifyOtp(...)` at the call site must
+  /// also see the failure — otherwise the caller has no way to tell "wrong
+  /// OTP" apart from "signed in successfully" and ends up running its
+  /// success path (checkmark animation, navigation) unconditionally. That
+  /// was a real bug: the OTP verify screen showed a green checkmark and
+  /// tried to navigate to /home even when the OTP was rejected, because it
+  /// had no signal that anything went wrong.
   Future<void> verifyOtp({
     required String mobile,
     required String otp,
@@ -50,6 +61,11 @@ class AuthController extends AsyncNotifier<AuthSession?> {
       final repo = ref.read(authRepositoryProvider);
       return repo.verifyOtp(mobile: mobile, otp: otp, requestId: requestId);
     });
+    final error = state.error;
+    if (error != null) {
+      final stack = state.stackTrace ?? StackTrace.current;
+      Error.throwWithStackTrace(error, stack);
+    }
   }
 
   /// Admin email + password login. Same state transitions as [verifyOtp].
@@ -111,6 +127,8 @@ class AuthController extends AsyncNotifier<AuthSession?> {
         // nothing was chosen yet.
         selectedStoreId: currentSession.selectedStoreId ??
             (freshStores.length == 1 ? freshStores.first.storeId : null),
+        mobile: me.user.mobile ?? currentSession.mobile,
+        name: me.user.name ?? currentSession.name,
       );
       await storage.writeSession(refreshed);
       state = AsyncData<AuthSession?>(refreshed);
@@ -144,6 +162,8 @@ class CurrentUser {
     required this.roles,
     this.selectedStoreId,
     this.selectedStoreName,
+    this.mobile,
+    this.name,
   });
 
   final String userId;
@@ -151,6 +171,18 @@ class CurrentUser {
   final List<String> roles;
   final String? selectedStoreId;
   final String? selectedStoreName;
+
+  /// E.164-ish raw mobile number from `/auth/me`. Screens should mask it
+  /// (e.g. `+91 •••••1 2345`) before display — this carries the
+  /// unmasked value so each call site can apply its own masking format
+  /// consistently with how it renders elsewhere.
+  final String? mobile;
+
+  /// Display name from `/auth/me`, when the account has one set. Most
+  /// accounts today don't (OTP-only signup never collects a name), so
+  /// callers should fall back to a masked [mobile] or a generic label —
+  /// never to [userId], which is an internal UUID with no display value.
+  final String? name;
 }
 
 /// Derived view of the auth state that ignores loading + error states. Use
@@ -171,5 +203,7 @@ final currentUserProvider = Provider<CurrentUser?>((ref) {
     roles: session.roles,
     selectedStoreId: session.selectedStoreId,
     selectedStoreName: selectedStore?.storeName,
+    mobile: session.mobile,
+    name: session.name,
   );
 });

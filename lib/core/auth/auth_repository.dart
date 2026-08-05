@@ -168,6 +168,8 @@ class AuthRepository {
       selectedStoreId: me.storeAccess.length == 1
           ? me.storeAccess.first.storeId
           : null,
+      mobile: me.user.mobile,
+      name: me.user.name,
     );
     await _storage.writeSession(session);
     return session;

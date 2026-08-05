@@ -116,6 +116,8 @@ class BootstrapController extends AsyncNotifier<BootstrapResult> {
               (me.storeAccess.length == 1
                   ? me.storeAccess.first.storeId
                   : null),
+          mobile: me.user.mobile ?? session.mobile,
+          name: me.user.name ?? session.name,
         );
         await storage.writeSession(refreshed);
 

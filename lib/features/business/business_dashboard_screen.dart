@@ -27,11 +27,18 @@ class _BizDashData {
     required this.recentTasks,
     required this.lowStockCount,
     required this.nearExpiryCount,
+    required this.dashboardDegraded,
   });
   final DashboardSummaryResponse dashboard;
   final List<TaskResponse> recentTasks;
   final int lowStockCount;
   final int nearExpiryCount;
+
+  /// True when `getDashboardSummary` itself failed and [dashboard] is the
+  /// `.empty` fallback rather than real data — screen shows a small inline
+  /// notice instead of hiding the whole page behind an error state, since
+  /// every other KPI on this page may still have loaded successfully.
+  final bool dashboardDegraded;
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -52,12 +59,21 @@ final _bizDashProvider = FutureProvider.autoDispose<_BizDashData>((ref) async {
   final client = ref.watch(apiClientProvider);
   final storeId = user?.selectedStoreId ?? '';
 
-  // The dashboard summary is the heart of the screen (OHS + activity charts).
-  // If it fails the screen legitimately shows an error + retry. The KPI
-  // sub-calls each degrade to a sane default so one flaky endpoint never
-  // takes the whole dashboard down with it.
+  // Every sub-call — including the dashboard summary itself — goes through
+  // `_soft()`. Previously only the KPI calls were wrapped, so a single
+  // transient failure on `getDashboardSummary` (e.g. the access token
+  // expired while the app was backgrounded for a while and the interceptor's
+  // refresh-and-retry round trip hit any hiccup) took down the ENTIRE
+  // business home screen into a dead "Could not load dashboard" state —
+  // even though every other call on the page would have succeeded fine.
+  // `dashboard` is nullable below specifically so the screen can still
+  // render everything else and show a small inline notice for just that
+  // one card, instead of the whole home tab going blank on a one-off blip.
   final results = await Future.wait<Object?>([
-    client.getDashboardSummary(storeId, daysAhead: 14),
+    _soft<DashboardSummaryResponse?>(
+      () => client.getDashboardSummary(storeId, daysAhead: 14),
+      null,
+    ),
     _soft(() => client.getTasks(status: 'open', limit: 3), <TaskResponse>[]),
     _soft<InventorySummaryResponse?>(
       () => client.getInventorySummary(storeId),
@@ -74,16 +90,17 @@ final _bizDashProvider = FutureProvider.autoDispose<_BizDashData>((ref) async {
     ),
   ]);
 
-  final dashboard = results[0] as DashboardSummaryResponse;
+  final dashboard = results[0] as DashboardSummaryResponse?;
   final tasks = results[1] as List<TaskResponse>;
   final inventory = results[2] as InventorySummaryResponse?;
   final nearExpiry = results[3] as int;
 
   return _BizDashData(
-    dashboard: dashboard,
+    dashboard: dashboard ?? DashboardSummaryResponse.empty,
     recentTasks: tasks,
     lowStockCount: inventory?.lowStockCount ?? 0,
     nearExpiryCount: nearExpiry,
+    dashboardDegraded: dashboard == null,
   );
 });
 
@@ -116,6 +133,12 @@ class BusinessDashboardScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.all(RadhaSpacing.space16),
           children: [
+            if (data.dashboardDegraded) ...[
+              _DashboardDegradedNotice(
+                onRetry: () => ref.invalidate(_bizDashProvider),
+              ),
+              const SizedBox(height: RadhaSpacing.space16),
+            ],
             _HomeHeroBand(
               nearExpiry: data.nearExpiryCount,
               lowStock: data.lowStockCount,
@@ -1025,6 +1048,65 @@ class _TaskRow extends StatelessWidget {
             ),
           ),
           Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurfaceVariant),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Degraded-dashboard inline notice ───────────────────────────────────────
+
+/// Small inline banner shown at the top of the dashboard when the OHS
+/// summary specifically failed to load but everything else on the page
+/// (tasks, inventory, expiry KPIs) came back fine. Deliberately not a
+/// full-screen error state — see `_bizDashProvider`'s comment for why.
+class _DashboardDegradedNotice extends StatelessWidget {
+  const _DashboardDegradedNotice({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: RadhaSpacing.space16,
+        vertical: RadhaSpacing.space12,
+      ),
+      decoration: BoxDecoration(
+        color: RadhaColors.warning.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
+        border: Border.all(color: RadhaColors.warning.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: RadhaColors.warning,
+          ),
+          const SizedBox(width: RadhaSpacing.space8),
+          Expanded(
+            child: Text(
+              'Some store insights couldn\u2019t load — the rest of your dashboard is up to date.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurface,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(
+              foregroundColor: RadhaColors.primary,
+              padding: const EdgeInsets.symmetric(
+                horizontal: RadhaSpacing.space8,
+              ),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Retry'),
+          ),
         ],
       ),
     );

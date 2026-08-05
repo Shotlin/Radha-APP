@@ -37,6 +37,13 @@ class SessionStorage {
   // Extra (not in the seven, but needed to round-trip an [AuthSession]).
   static const String kStoresJson = 'stores_json';
 
+  // Not in the original seven either — see AuthSession's `mobile`/`name`
+  // doc comment. Persisted so the Profile screen and Home greeting show
+  // something real across cold starts, not just while the in-memory
+  // session from the most recent login is still alive.
+  static const String kMobile = 'mobile';
+  static const String kName = 'name';
+
   // Onboarding flag — read by the router to gate `/onboarding`.
   static const String kOnboardingComplete = 'onboarding_complete';
 
@@ -146,6 +153,14 @@ class SessionStorage {
         _storage.write(key: kSelectedStoreId, value: session.selectedStoreId)
       else
         _storage.delete(key: kSelectedStoreId),
+      if (session.mobile != null)
+        _storage.write(key: kMobile, value: session.mobile)
+      else
+        _storage.delete(key: kMobile),
+      if (session.name != null)
+        _storage.write(key: kName, value: session.name)
+      else
+        _storage.delete(key: kName),
     ]);
   }
 
@@ -186,6 +201,8 @@ class SessionStorage {
     final roles = await readRoles();
     final stores = await readStores();
     final selectedStoreId = await readSelectedStoreId();
+    final mobile = await _storage.read(key: kMobile);
+    final name = await _storage.read(key: kName);
     return AuthSession(
       accessToken: access,
       refreshToken: refresh,
@@ -194,6 +211,8 @@ class SessionStorage {
       roles: roles,
       stores: stores,
       selectedStoreId: selectedStoreId,
+      mobile: mobile,
+      name: name,
     );
   }
 
@@ -212,6 +231,8 @@ class SessionStorage {
       _storage.delete(key: kRolesJson),
       _storage.delete(key: kStoresJson),
       _storage.delete(key: kSelectedStoreId),
+      _storage.delete(key: kMobile),
+      _storage.delete(key: kName),
       // device_id intentionally retained.
       // pending_onboarding_segment intentionally retained — Task 7 owns it.
     ]);

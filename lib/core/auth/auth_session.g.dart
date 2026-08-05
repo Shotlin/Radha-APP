@@ -17,6 +17,8 @@ _$AuthSessionImpl _$$AuthSessionImplFromJson(Map<String, dynamic> json) =>
           .map((e) => StoreAccess.fromJson(e as Map<String, dynamic>))
           .toList(),
       selectedStoreId: json['selectedStoreId'] as String?,
+      mobile: json['mobile'] as String?,
+      name: json['name'] as String?,
     );
 
 Map<String, dynamic> _$$AuthSessionImplToJson(_$AuthSessionImpl instance) =>
@@ -28,6 +30,8 @@ Map<String, dynamic> _$$AuthSessionImplToJson(_$AuthSessionImpl instance) =>
       'roles': instance.roles,
       'stores': instance.stores.map((e) => e.toJson()).toList(),
       'selectedStoreId': instance.selectedStoreId,
+      'mobile': instance.mobile,
+      'name': instance.name,
     };
 
 _$StoreAccessImpl _$$StoreAccessImplFromJson(Map<String, dynamic> json) =>

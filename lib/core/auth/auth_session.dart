@@ -16,6 +16,15 @@ class AuthSession with _$AuthSession {
     required List<String> roles,
     required List<StoreAccess> stores,
     String? selectedStoreId,
+    // The auth session previously only carried `userId` (a UUID), so the
+    // Profile screen and Home greeting had nothing better to display and
+    // fell back to showing the raw UUID — which reads as a broken/demo
+    // placeholder rather than "you're signed in as yourself". `/auth/me`
+    // has always returned `mobile` + `name`; these were just never
+    // threaded through into the persisted session. Both nullable since
+    // `name` is often unset and older stored sessions won't have them.
+    String? mobile,
+    String? name,
   }) = _AuthSession;
 
   factory AuthSession.fromJson(Map<String, dynamic> json) =>

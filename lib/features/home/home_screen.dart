@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:radha_app/core/auth/auth_controller.dart';
+import 'package:radha_app/core/auth/mobile_display.dart';
 import 'package:radha_app/core/mode/app_mode_provider.dart';
 import 'package:radha_app/core/network/dto/task_dto.dart';
 import 'package:radha_app/core/router/app_router.dart';
@@ -217,8 +218,19 @@ class _HeroGreeting extends StatelessWidget {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     final fallback = l10n.homeGreetingFallbackName;
-    final rawName = user?.userId.split('-').first ?? fallback;
-    final name = rawName.isEmpty ? fallback : rawName;
+    // Was `user?.userId.split('-').first` — a truncated internal UUID
+    // fragment (e.g. "1b4692df") shown as the person's "name". Reads as a
+    // broken/placeholder value. Prefer a real display name, then the
+    // masked mobile number, and only fall back to the generic greeting
+    // when neither is available.
+    final displayName = user?.name;
+    final rawMobile = user?.mobile;
+    final maskedMobile = (rawMobile != null && rawMobile.isNotEmpty)
+        ? maskMobileForDisplay(rawMobile)
+        : null;
+    final name = (displayName != null && displayName.isNotEmpty)
+        ? displayName
+        : (maskedMobile ?? fallback);
     final storeName = user?.selectedStoreName;
 
     return Container(

@@ -58,7 +58,26 @@ class _SessionResumeGuardState extends ConsumerState<SessionResumeGuard>
     if (!isSignedIn) return;
     // Fire-and-forget: any failure just means the next real API call falls
     // back to the interceptor's own reactive refresh, exactly as before.
-    unawaited(ref.read(apiClientProvider).me());
+    // MUST be explicitly caught, not just `unawaited` — an uncaught
+    // rejection here escapes to `PlatformDispatcher.instance.onError`
+    // (`ErrorBoundary`), which surfaces the generic red "Something went
+    // wrong" snackbar to the user on every single resume where the access
+    // token happened to be stale. That's not a real app error (the
+    // interceptor already retries below), just a background probe that
+    // failed — it must never be user-visible.
+    unawaited(_probeSession());
+  }
+
+  /// Best-effort `/auth/me` probe — see the call site comment. Wrapped in
+  /// its own async function (rather than `.catchError` on the bare call) so
+  /// the try/catch reads clearly and there's no return-type mismatch to
+  /// juggle.
+  Future<void> _probeSession() async {
+    try {
+      await ref.read(apiClientProvider).me();
+    } catch (_) {
+      // Swallowed — see the comment in didChangeAppLifecycleState above.
+    }
   }
 
   @override
