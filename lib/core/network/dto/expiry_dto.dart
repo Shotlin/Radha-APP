@@ -34,6 +34,7 @@ class ExpiryResponse {
     required this.productId,
     required this.expiryDate,
     this.productName,
+    this.ean,
     this.manufactureDate,
     this.batchNumber,
     this.quantity,
@@ -48,6 +49,11 @@ class ExpiryResponse {
   /// offline-queued records that haven't synced yet) — fall back to the
   /// short ID token display in that case.
   final String? productName;
+
+  /// Server-joined product barcode (EAN/UPC). Same nullability rationale
+  /// as [productName] — the calendar day-detail view shows it alongside
+  /// the name so staff can tell apart same-named SKUs.
+  final String? ean;
   final String expiryDate;
   final String? manufactureDate;
   final String? batchNumber;

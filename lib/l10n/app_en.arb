@@ -1439,10 +1439,32 @@
   "expiryCalendarLoadError": "Failed to load calendar data.",
   "expiryCalendarTapHint": "Tap a day to see details",
   "expiryCalendarNoRecords": "No expiry records for this day",
-  "expiryCalendarSummaryFor": "Summary for {date}",
-  "@expiryCalendarSummaryFor": {
-    "description": "Header above the selected day's expiry summary.",
-    "placeholders": { "date": { "type": "String", "example": "2026-07-15" } }
+ "expiryCalendarSummaryFor": "Summary for {date}",
+ "@expiryCalendarSummaryFor": {
+   "description": "Header above the selected day's expiry summary.",
+   "placeholders": { "date": { "type": "String", "example": "2026-07-15" } }
+ },
+  "expiryCalendarThisMonth": "This month",
+  "expiryCalendarNoRecordsMonth": "No expiry records this month",
+  "expiryCalendarEanLabel": "EAN {ean}",
+  "@expiryCalendarEanLabel": {
+    "description": "Barcode label shown under a product's name in the calendar detail list.",
+    "placeholders": { "ean": { "type": "String", "example": "8901030826829" } }
+  },
+  "expiryCalendarDaysLeft": "{days, plural, =0{Expires today} =1{1 day left} other{{days} days left}}",
+  "@expiryCalendarDaysLeft": {
+    "description": "Days remaining until expiry, shown per product in the calendar detail list.",
+    "placeholders": { "days": { "type": "int", "example": "5" } }
+  },
+  "expiryCalendarDaysOverdue": "{days, plural, =1{Expired 1 day ago} other{Expired {days} days ago}}",
+  "@expiryCalendarDaysOverdue": {
+    "description": "Days since expiry for already-expired items in the calendar detail list.",
+    "placeholders": { "days": { "type": "int", "example": "3" } }
+  },
+  "expiryCalendarQtyLabel": "Qty {qty}",
+  "@expiryCalendarQtyLabel": {
+    "description": "Quantity label shown per product in the calendar detail list.",
+    "placeholders": { "qty": { "type": "String", "example": "12" } }
   },
   "exTitle": "New Expiry Record",
   "exMfgAfterExpiry": "Manufacturing date cannot be after expiry date",

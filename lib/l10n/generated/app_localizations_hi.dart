@@ -2717,6 +2717,45 @@ class AppLocalizationsHi extends AppLocalizations {
   }
 
   @override
+  String get expiryCalendarThisMonth => 'This month';
+
+  @override
+  String get expiryCalendarNoRecordsMonth => 'No expiry records this month';
+
+  @override
+  String expiryCalendarEanLabel(String ean) {
+    return 'EAN $ean';
+  }
+
+  @override
+  String expiryCalendarDaysLeft(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days left',
+      one: '1 day left',
+      zero: 'Expires today',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String expiryCalendarDaysOverdue(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'Expired $days days ago',
+      one: 'Expired 1 day ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String expiryCalendarQtyLabel(String qty) {
+    return 'Qty $qty';
+  }
+
+  @override
   String get exTitle => 'नया एक्सपायरी रिकॉर्ड';
 
   @override

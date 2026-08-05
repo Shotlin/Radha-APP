@@ -1,9 +1,15 @@
-// Expiry calendar (consumes the expiry calendar endpoint).
+// Expiry calendar (consumes the expiry-records endpoint, aggregated
+// client-side by month).
 //
 // Monthly calendar view showing expiry status dots per day:
 //   * danger red  = expired items that day,
 //   * warn amber  = near-expiry,
 //   * success green = safe.
+//
+// Below the grid, a detail list always shows real product rows (name,
+// EAN, quantity, days left/overdue) — never just a count:
+//   * No day selected → every record in the focused month, grouped by day.
+//   * A day selected  → only that day's records.
 //
 // Design rules (from tokens.dart):
 //   * One orange accent (#EA580C) for the selected day + today marker. The
@@ -87,19 +93,48 @@ List<Map<String, dynamic>> _recordsToCalendarEntries(
       .toList();
 }
 
-/// Provider that builds month data by aggregating the expiry-records endpoint.
-/// The calendar endpoint was removed from the backend; we derive it client-side.
+/// Records for [month] (`yyyy-MM`), sorted by expiry date ascending, kept
+/// as full [ExpiryResponse] rows (not aggregated) — this is what the
+/// detail list renders, whether or not a specific day is selected.
+List<ExpiryResponse> _recordsForMonth(
+  List<ExpiryResponse> records,
+  String month,
+) {
+  final matches = records.where((record) {
+    final parsed = DateTime.tryParse(record.expiryDate);
+    if (parsed == null) return false;
+    final recordMonth =
+        '${parsed.year}-${parsed.month.toString().padLeft(2, '0')}';
+    return recordMonth == month;
+  }).toList();
+  matches.sort((a, b) => a.expiryDate.compareTo(b.expiryDate));
+  return matches;
+}
+
+/// Provider that fetches the store's expiry records once and derives both
+/// the per-day dot summary and the full-detail record list for the
+/// focused month client-side. The calendar endpoint was removed from the
+/// backend; we derive everything from `GET /expiry-records`.
 final _calendarProvider =
-    FutureProvider.family<ExpiryCalendarResponse, _CalendarQueryArgs>((
-      ref,
-      args,
-    ) async {
+    FutureProvider.family<_CalendarData, _CalendarQueryArgs>((ref, args) async {
       final client = ref.watch(apiClientProvider);
       final page = await client.getExpiries(storeId: args.storeId, limit: 200);
-      return ExpiryCalendarResponse(
+      return _CalendarData(
         entries: _recordsToCalendarEntries(page.items, args.month),
+        monthRecords: _recordsForMonth(page.items, args.month),
       );
     });
+
+/// Bundle returned by [_calendarProvider]: the aggregated dot-marker data
+/// plus the raw per-record list for the focused month, so the detail
+/// list below the grid always has real product rows to render.
+@immutable
+class _CalendarData {
+  const _CalendarData({required this.entries, required this.monthRecords});
+
+  final List<Map<String, dynamic>> entries;
+  final List<ExpiryResponse> monthRecords;
+}
 
 /// Monthly calendar view showing expiry status dots per day.
 class ExpiryCalendarScreen extends ConsumerStatefulWidget {
@@ -207,6 +242,7 @@ class _ExpiryCalendarScreenState extends ConsumerState<ExpiryCalendarScreen> {
           ),
           data: (calResponse) {
             final dayMap = _buildDayMap(calResponse.entries);
+            final monthRecords = calResponse.monthRecords;
 
             return Column(
               children: [
@@ -309,7 +345,7 @@ class _ExpiryCalendarScreenState extends ConsumerState<ExpiryCalendarScreen> {
                 Expanded(
                   child: _DayDetails(
                     selectedDay: _selectedDay,
-                    dayMap: dayMap,
+                    monthRecords: monthRecords,
                   ),
                 ),
               ],
@@ -411,13 +447,14 @@ class _DayDots extends StatelessWidget {
   }
 }
 
-/// Shows a summary of items for the selected day. Animates between the empty
-/// hint and the populated summary as the user taps around the month.
+/// Shows real product rows (name, EAN, quantity, days left/overdue) for
+/// either the whole focused month (no day selected — the default view) or
+/// just the selected day. Animates between states as the user taps around.
 class _DayDetails extends StatelessWidget {
-  const _DayDetails({required this.selectedDay, required this.dayMap});
+  const _DayDetails({required this.selectedDay, required this.monthRecords});
 
   final DateTime? selectedDay;
-  final Map<DateTime, _DaySummary> dayMap;
+  final List<ExpiryResponse> monthRecords;
 
   @override
   Widget build(BuildContext context) {
@@ -442,77 +479,111 @@ class _DayDetails extends StatelessWidget {
 
   Widget _buildContent(BuildContext context, ThemeData theme) {
     final l10n = AppLocalizations.of(context);
+
     if (selectedDay == null) {
-      return Center(
-        key: const ValueKey('hint'),
-        child: Text(
-          l10n.expiryCalendarTapHint,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
+      // Default view: every record in the focused month, grouped by day.
+      if (monthRecords.isEmpty) {
+        return _emptyState(
+          key: const ValueKey('empty-month'),
+          theme: theme,
+          message: l10n.expiryCalendarNoRecordsMonth,
+        );
+      }
+      final groups = <String, List<ExpiryResponse>>{};
+      for (final record in monthRecords) {
+        groups.putIfAbsent(record.expiryDate, () => []).add(record);
+      }
+      final sortedDates = groups.keys.toList()..sort();
+      return ListView(
+        key: const ValueKey('month-list'),
+        padding: const EdgeInsets.fromLTRB(
+          RadhaSpacing.space16,
+          RadhaSpacing.space16,
+          RadhaSpacing.space16,
+          RadhaSpacing.space24,
         ),
-      );
-    }
-
-    final normalized = DateTime.utc(
-      selectedDay!.year,
-      selectedDay!.month,
-      selectedDay!.day,
-    );
-    final summary = dayMap[normalized];
-
-    if (summary == null || summary.total == 0) {
-      return Center(
-        key: ValueKey('empty-${_formatDate(selectedDay!)}'),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            MorCompanion(
-              mood: MorMood.guard,
-              size: 96,
-              semanticLabel: l10n.expiryCalendarNoRecords,
-            ),
-            const SizedBox(height: RadhaSpacing.space12),
-            Text(
-              l10n.expiryCalendarNoRecords,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+        children: [
+          Text(l10n.expiryCalendarThisMonth, style: theme.textTheme.titleSmall),
+          const SizedBox(height: RadhaSpacing.space12),
+          for (final date in sortedDates) ...[
+            Padding(
+              padding: const EdgeInsets.only(
+                top: RadhaSpacing.space8,
+                bottom: RadhaSpacing.space4,
+              ),
+              child: Text(
+                _formatDisplayDate(date),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
+            for (final record in groups[date]!)
+              Padding(
+                padding: const EdgeInsets.only(bottom: RadhaSpacing.space8),
+                child: _ProductDetailRow(record: record),
+              ),
           ],
-        ),
+        ],
       );
     }
 
-    return Padding(
-      key: ValueKey('summary-${_formatDate(selectedDay!)}'),
-      padding: const EdgeInsets.all(RadhaSpacing.space16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.expiryCalendarSummaryFor(_formatDate(selectedDay!)),
-            style: theme.textTheme.titleSmall,
+    // A specific day is selected: only that day's records.
+    final dayKey = _formatDate(selectedDay!);
+    final dayRecords = monthRecords
+        .where((r) => r.expiryDate.startsWith(dayKey))
+        .toList();
+
+    if (dayRecords.isEmpty) {
+      return _emptyState(
+        key: ValueKey('empty-$dayKey'),
+        theme: theme,
+        message: l10n.expiryCalendarNoRecords,
+      );
+    }
+
+    return ListView(
+      key: ValueKey('day-list-$dayKey'),
+      padding: const EdgeInsets.fromLTRB(
+        RadhaSpacing.space16,
+        RadhaSpacing.space16,
+        RadhaSpacing.space16,
+        RadhaSpacing.space24,
+      ),
+      children: [
+        Text(
+          l10n.expiryCalendarSummaryFor(dayKey),
+          style: theme.textTheme.titleSmall,
+        ),
+        const SizedBox(height: RadhaSpacing.space12),
+        for (final record in dayRecords)
+          Padding(
+            padding: const EdgeInsets.only(bottom: RadhaSpacing.space8),
+            child: _ProductDetailRow(record: record),
           ),
+      ],
+    );
+  }
+
+  Widget _emptyState({
+    required Key key,
+    required ThemeData theme,
+    required String message,
+  }) {
+    return Center(
+      key: key,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          MorCompanion(mood: MorMood.guard, size: 96, semanticLabel: message),
           const SizedBox(height: RadhaSpacing.space12),
-          if (summary.expired > 0)
-            _SummaryRow(
-              color: RadhaColors.danger,
-              label: l10n.expired,
-              count: summary.expired,
+          Text(
+            message,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
             ),
-          if (summary.nearExpiry > 0)
-            _SummaryRow(
-              color: RadhaColors.warning,
-              label: l10n.expiryTabNear,
-              count: summary.nearExpiry,
-            ),
-          if (summary.safe > 0)
-            _SummaryRow(
-              color: RadhaColors.success,
-              label: l10n.expiryTabSafe,
-              count: summary.safe,
-            ),
+          ),
         ],
       ),
     );
@@ -520,42 +591,110 @@ class _DayDetails extends StatelessWidget {
 
   String _formatDate(DateTime date) =>
       '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  /// `yyyy-MM-dd...` → `yyyy-MM-dd` (group headers key on the ISO date
+  /// prefix only, dropping any time-of-day component the server sends).
+  String _formatDisplayDate(String isoDate) =>
+      isoDate.length >= 10 ? isoDate.substring(0, 10) : isoDate;
 }
 
-class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({
-    required this.color,
-    required this.label,
-    required this.count,
-  });
+/// One product row in the calendar's detail list: name, EAN, quantity, and
+/// a status-colored days-left/overdue chip. This is the "proper product
+/// details" view the day-tap summary was missing before.
+class _ProductDetailRow extends StatelessWidget {
+  const _ProductDetailRow({required this.record});
 
-  final Color color;
-  final String label;
-  final int count;
+  final ExpiryResponse record;
+
+  int? get _daysLeft {
+    final d = DateTime.tryParse(record.expiryDate);
+    if (d == null) return null;
+    final today = DateTime.now();
+    final dateOnly = DateTime(d.year, d.month, d.day);
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    return dateOnly.difference(todayOnly).inDays;
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: RadhaSpacing.space8),
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context);
+    final days = _daysLeft;
+
+    final (chipColor, chipLabel) = switch (days) {
+      null => (scheme.onSurfaceVariant, record.status ?? '—'),
+      < 0 => (RadhaColors.danger, l10n.expiryCalendarDaysOverdue(-days)),
+      _ => days <= 7
+          ? (RadhaColors.warning, l10n.expiryCalendarDaysLeft(days))
+          : (RadhaColors.success, l10n.expiryCalendarDaysLeft(days)),
+    };
+
+    final name = (record.productName != null && record.productName!.isNotEmpty)
+        ? record.productName!
+        : l10n.expiryProductShort(
+            record.productId.length <= 8
+                ? record.productId
+                : record.productId.substring(0, 8),
+          );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
+        border: Border.all(color: scheme.outline),
+      ),
+      padding: const EdgeInsets.all(RadhaSpacing.space12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 12,
-            height: 12,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.16),
-              shape: BoxShape.circle,
-              border: Border.all(color: color),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: scheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: RadhaSpacing.space2),
+                Text(
+                  [
+                    if (record.ean != null && record.ean!.isNotEmpty)
+                      l10n.expiryCalendarEanLabel(record.ean!),
+                    if (record.quantity != null)
+                      l10n.expiryCalendarQtyLabel('${record.quantity}'),
+                  ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: RadhaSpacing.space12),
-          Expanded(
-            child: Text(label, style: theme.textTheme.bodyMedium),
-          ),
-          Text(
-            '$count',
-            style: theme.textTheme.titleSmall?.copyWith(color: color),
+          const SizedBox(width: RadhaSpacing.space8),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: RadhaSpacing.space12,
+              vertical: RadhaSpacing.space4,
+            ),
+            decoration: BoxDecoration(
+              color: chipColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
+            ),
+            child: Text(
+              chipLabel,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: chipColor,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),

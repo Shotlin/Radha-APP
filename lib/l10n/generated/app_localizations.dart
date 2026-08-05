@@ -4858,6 +4858,42 @@ abstract class AppLocalizations {
   /// **'Summary for {date}'**
   String expiryCalendarSummaryFor(String date);
 
+  /// No description provided for @expiryCalendarThisMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'This month'**
+  String get expiryCalendarThisMonth;
+
+  /// No description provided for @expiryCalendarNoRecordsMonth.
+  ///
+  /// In en, this message translates to:
+  /// **'No expiry records this month'**
+  String get expiryCalendarNoRecordsMonth;
+
+  /// Barcode label shown under a product's name in the calendar detail list.
+  ///
+  /// In en, this message translates to:
+  /// **'EAN {ean}'**
+  String expiryCalendarEanLabel(String ean);
+
+  /// Days remaining until expiry, shown per product in the calendar detail list.
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =0{Expires today} =1{1 day left} other{{days} days left}}'**
+  String expiryCalendarDaysLeft(int days);
+
+  /// Days since expiry for already-expired items in the calendar detail list.
+  ///
+  /// In en, this message translates to:
+  /// **'{days, plural, =1{Expired 1 day ago} other{Expired {days} days ago}}'**
+  String expiryCalendarDaysOverdue(int days);
+
+  /// Quantity label shown per product in the calendar detail list.
+  ///
+  /// In en, this message translates to:
+  /// **'Qty {qty}'**
+  String expiryCalendarQtyLabel(String qty);
+
   /// No description provided for @exTitle.
   ///
   /// In en, this message translates to:
