@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/google_sign_in_screen.dart';
+import '../../features/auth/legacy_account_link_screen.dart';
 import '../../features/auth/otp_request_screen.dart';
 import '../../features/auth/otp_verify_screen.dart';
 import '../../features/ai/ingredient_explainer_screen.dart';
@@ -70,6 +72,11 @@ class AppRoute {
 
   static const String splash = '/splash';
   static const String onboarding = '/onboarding';
+  // Phase 13 — primary login. `authOtp`/`authOtpVerify` remain wired but
+  // are now reachable only from `authLegacyLink`'s internal navigation,
+  // for pre-existing phone-only accounts.
+  static const String authGoogle = '/auth/google';
+  static const String authLegacyLink = '/auth/legacy-link';
   static const String authOtp = '/auth/otp';
   static const String authOtpVerify = '/auth/otp/verify';
   static const String selectStore = '/select-store';
@@ -163,6 +170,8 @@ class AppRoute {
 final Set<String> _publicPathPrefixes = <String>{
   AppRoute.splash,
   AppRoute.onboarding,
+  AppRoute.authGoogle,
+  AppRoute.authLegacyLink,
   AppRoute.authOtp,
   AppRoute.authOtpVerify,
 };
@@ -170,6 +179,8 @@ final Set<String> _publicPathPrefixes = <String>{
 bool _isPublic(String location) {
   if (location == AppRoute.splash ||
       location == AppRoute.onboarding ||
+      location == AppRoute.authGoogle ||
+      location == AppRoute.authLegacyLink ||
       location == AppRoute.authOtp ||
       location == AppRoute.authOtpVerify) {
     return true;
@@ -237,6 +248,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: AppRoute.onboarding,
         name: 'onboarding',
         builder: (context, state) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.authGoogle,
+        name: 'authGoogle',
+        builder: (context, state) => const GoogleSignInScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.authLegacyLink,
+        name: 'authLegacyLink',
+        builder: (context, state) => const LegacyAccountLinkScreen(),
       ),
       GoRoute(
         path: AppRoute.authOtp,
@@ -689,10 +710,14 @@ String? _redirect(Ref ref, GoRouterState state) {
   // 2. No session → always gate through the onboarding split page (Personal /
   //    Business selector). This is the app's entry screen every time the user
   //    is signed out, not just on first install.
-  //    Exceptions: /auth/otp and /auth/otp/verify are reachable from the split
-  //    page itself. Auditors bypass — they log in via OTP directly.
+  //    Exceptions: /auth/google (Phase 13 primary) and /auth/legacy-link are
+  //    reachable from the split page itself; /auth/otp + /auth/otp/verify
+  //    stay reachable too (auditor invite-link path, unrelated to Phase 13).
+  //    Auditors bypass entirely — they log in via OTP directly.
   if (session == null && !isAuditor) {
     if (_isOnboarding(location) ||
+        location == AppRoute.authGoogle ||
+        location == AppRoute.authLegacyLink ||
         location == AppRoute.authOtp ||
         location == AppRoute.authOtpVerify) {
       return null;
@@ -736,7 +761,10 @@ String? _redirect(Ref ref, GoRouterState state) {
 
   // Logged-in users have no business on the OTP REQUEST screen.
   // The OTP VERIFY screen routes itself after posting the pending segment,
-  // so we leave it alone — redirecting here would race with its context.go().
+  // so we leave it alone — redirecting here would race with its
+  // context.go(). Same reasoning excludes /auth/google (Phase 13): login
+  // COMPLETES on that screen (like OTP verify, not OTP request), so its
+  // own runPostLoginFlow() routing must win, not this generic bounce.
   if ((session.selectedStoreId != null || session.stores.isEmpty) &&
       location == AppRoute.authOtp) {
     return isAuditor ? AppRoute.tasks : AppRoute.home;

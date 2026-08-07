@@ -48,6 +48,28 @@ abstract class ApiClient {
   @POST('/api/v1/auth/otp/verify')
   Future<LoginResponse> verifyOtp(@Body() VerifyOtpRequestDto body);
 
+  /// Phase 13 — primary login: exchanges a Firebase ID token (minted after
+  /// Google Sign-In) for RADHA's own access + refresh tokens.
+  @POST('/api/v1/auth/firebase/exchange')
+  Future<LoginResponse> exchangeFirebaseToken(
+    @Body() FirebaseExchangeRequestDto body,
+  );
+
+  /// Phase 13 legacy-link recovery, step 1 — mirrors [requestOtp]'s
+  /// response shape but only succeeds for a phone number that already has
+  /// an account.
+  @POST('/api/v1/auth/legacy/link/request')
+  Future<OtpRequestResponse> requestLegacyLink(
+    @Body() LegacyLinkRequestRequestDto body,
+  );
+
+  /// Phase 13 legacy-link recovery, step 2 — links the caller's
+  /// already-held Firebase identity onto their pre-existing account.
+  @POST('/api/v1/auth/legacy/link/verify')
+  Future<LoginResponse> verifyLegacyLink(
+    @Body() LegacyLinkVerifyRequestDto body,
+  );
+
   @POST('/api/v1/auth/admin/login')
   Future<LoginResponse> adminLogin(@Body() AdminLoginRequestDto body);
 

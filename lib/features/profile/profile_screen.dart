@@ -861,11 +861,12 @@ class _SignOutRowState extends ConsumerState<_SignOutRow> {
     setState(() => _busy = true);
     try {
       await ref.read(authControllerProvider.notifier).logout();
-      // The router's redirect handler routes us to /auth/otp on the next
-      // refresh tick. Push it explicitly anyway so navigation feels
-      // immediate even if the listener is microtask-delayed.
+      // The router's redirect handler routes us to /auth/google on the
+      // next refresh tick (Phase 13: Google Sign-In is the primary
+      // re-entry point now). Push it explicitly anyway so navigation
+      // feels immediate even if the listener is microtask-delayed.
       if (!mounted) return;
-      context.go(AppRoute.authOtp);
+      context.go(AppRoute.authGoogle);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

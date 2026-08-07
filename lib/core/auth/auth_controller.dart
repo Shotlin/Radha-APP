@@ -80,6 +80,59 @@ class AuthController extends AsyncNotifier<AuthSession?> {
     });
   }
 
+  /// Phase 13 — primary login. Same NOT-setting-loading-first rationale as
+  /// [verifyOtp] doesn't apply here (there's no pending-onboarding-segment
+  /// post step riding on this screen), so this one sets loading normally.
+  /// Rethrows on failure, same contract as [verifyOtp].
+  Future<void> signInWithFirebase({
+    required String idToken,
+    String? deviceId,
+  }) async {
+    state = const AsyncLoading<AuthSession?>();
+    state = await AsyncValue.guard<AuthSession?>(() async {
+      final repo = ref.read(authRepositoryProvider);
+      return repo.exchangeFirebaseToken(idToken: idToken, deviceId: deviceId);
+    });
+    final error = state.error;
+    if (error != null) {
+      final stack = state.stackTrace ?? StackTrace.current;
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
+  /// Phase 13 legacy-link recovery, step 1. Doesn't change session state.
+  Future<OtpRequestResult> requestLegacyLink(String mobile) {
+    final repo = ref.read(authRepositoryProvider);
+    return repo.requestLegacyLink(mobile);
+  }
+
+  /// Phase 13 legacy-link recovery, step 2. Same state-transition contract
+  /// as [verifyOtp] — rethrows on failure so the screen can distinguish
+  /// "wrong OTP" from "linked successfully".
+  Future<void> linkLegacyAccount({
+    required String mobile,
+    required String otp,
+    required String requestId,
+    required String idToken,
+    String? deviceId,
+  }) async {
+    state = await AsyncValue.guard<AuthSession?>(() async {
+      final repo = ref.read(authRepositoryProvider);
+      return repo.linkLegacyAccount(
+        mobile: mobile,
+        otp: otp,
+        requestId: requestId,
+        idToken: idToken,
+        deviceId: deviceId,
+      );
+    });
+    final error = state.error;
+    if (error != null) {
+      final stack = state.stackTrace ?? StackTrace.current;
+      Error.throwWithStackTrace(error, stack);
+    }
+  }
+
   /// Wipes the session locally and (best-effort) on the server. The new state
   /// is `AsyncData(null)` regardless of network outcome — see
   /// [AuthRepository.logout]. The `finally` is load-bearing: the router's

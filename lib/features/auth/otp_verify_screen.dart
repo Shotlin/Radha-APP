@@ -10,18 +10,16 @@ import 'package:pinput/pinput.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/auth/mobile_display.dart';
 import '../../core/auth/session_storage.dart';
-import '../../core/network/api_client.dart';
-import '../../core/notifications/push_service.dart';
 import '../../core/network/api_exception.dart';
 import '../../core/network/dto/onboarding_dto.dart';
 import '../../core/network/error_codes.dart';
-import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
 import '../../design/theme.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/hero_screen.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'post_login_flow.dart';
 
 class OtpVerifyScreen extends ConsumerStatefulWidget {
   const OtpVerifyScreen({
@@ -104,7 +102,6 @@ class _OtpVerifyScreenState extends ConsumerState<OtpVerifyScreen> {
     // post the pending segment and navigate even after disposal.
     final router = GoRouter.of(context);
     final storage = ref.read(sessionStorageProvider);
-    final api = ref.read(apiClientProvider);
 
     try {
       // Read pending segment before verifyOtp() — user isn't logged in yet so
@@ -127,43 +124,16 @@ class _OtpVerifyScreenState extends ConsumerState<OtpVerifyScreen> {
         setState(() => _verified = true);
       }
 
-      // Post pending segment using pre-captured api — safe after widget disposal.
-      OnboardingNextScreenDto? nextScreen;
-      if (segment != null) {
-        try {
-          final response = await api.selectOnboardingSegment(
-              SelectSegmentRequestDto(segment: segment));
-          await storage.setPendingOnboardingSegment(null);
-          nextScreen = response.nextScreen;
-        } catch (_) {
-          // Segment post failure is non-fatal; fall through to routing logic.
-        }
-      }
-
-      // Phase 10: register FCM token now that we have an authenticated session.
-      // Fire-and-forget — failure is non-fatal, push just won't work this session.
-      PushService.instance.registerToken(api).ignore();
-
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-
-      // Route to business activation when:
-      //   a) The backend explicitly requested it, OR
-      //   b) The user chose the business onboarding path AND their account has
-      //      no store yet — this covers demo/new accounts where the segment
-      //      endpoint is unavailable or doesn't upgrade the role automatically.
-      final freshSession = ref.read(authControllerProvider).valueOrNull;
-      final needsBusinessActivation =
-          nextScreen == OnboardingNextScreenDto.businessActivationFlow ||
-          (cameFromBusinessOnboarding &&
-              (freshSession == null || freshSession.stores.isEmpty));
-
-      if (needsBusinessActivation) {
-        // Use pre-captured router so navigation works even after disposal.
-        router.go(AppRoute.businessActivation);
-      } else if (mounted) {
-        context.go(AppRoute.home);
-      }
-      // else: GoRouter already navigated to home via redirect — nothing to do.
+      // Shared with google_sign_in_screen.dart / legacy_account_link_screen.dart
+      // (Phase 13) — see post_login_flow.dart. Safe to pass `context` across
+      // this async gap — see google_sign_in_screen.dart's identical call.
+      await runPostLoginFlow(
+        ref: ref,
+        context: context, // ignore: use_build_context_synchronously
+        router: router,
+        segment: segment,
+        cameFromBusinessOnboarding: cameFromBusinessOnboarding,
+      );
     } on RateLimitException catch (e) {
       if (!mounted) return;
       setState(() => _errorText = userMessageForCode(

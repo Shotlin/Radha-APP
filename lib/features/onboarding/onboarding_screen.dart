@@ -80,7 +80,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       final storage = ref.read(sessionStorageProvider);
       await storage.setPendingOnboardingSegment(segment.wireValue);
       await ref.read(onboardingFlagControllerProvider.notifier).markComplete();
-      if (mounted) context.go(AppRoute.authOtp);
+      // Phase 13: Google Sign-In is the primary post-onboarding entry point.
+      if (mounted) context.go(AppRoute.authGoogle);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

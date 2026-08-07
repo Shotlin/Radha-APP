@@ -44,6 +44,51 @@ class RefreshTokenRequestDto {
   Map<String, dynamic> toJson() => _$RefreshTokenRequestDtoToJson(this);
 }
 
+/// Phase 13 — primary login path. `idToken` is the Firebase ID token
+/// minted client-side after Google Sign-In (`FirebaseAuth.instance
+/// .signInWithCredential(...)` → `user.getIdToken()`), verified
+/// server-side via the Firebase Admin SDK.
+@JsonSerializable(createFactory: false)
+class FirebaseExchangeRequestDto {
+  const FirebaseExchangeRequestDto({required this.idToken, this.deviceId});
+  final String idToken;
+  final String? deviceId;
+
+  Map<String, dynamic> toJson() => _$FirebaseExchangeRequestDtoToJson(this);
+}
+
+/// Phase 13 legacy-link recovery, step 1: prove ownership of a
+/// pre-existing phone-only account via OTP before it's linked to the
+/// caller's Google identity.
+@JsonSerializable(createFactory: false)
+class LegacyLinkRequestRequestDto {
+  const LegacyLinkRequestRequestDto({required this.mobile});
+  final String mobile;
+
+  Map<String, dynamic> toJson() => _$LegacyLinkRequestRequestDtoToJson(this);
+}
+
+/// Phase 13 legacy-link recovery, step 2: verifies the OTP AND the
+/// already-held Firebase ID token, then links them server-side.
+@JsonSerializable(createFactory: false)
+class LegacyLinkVerifyRequestDto {
+  const LegacyLinkVerifyRequestDto({
+    required this.mobile,
+    required this.otp,
+    required this.requestId,
+    required this.idToken,
+    this.deviceId,
+  });
+
+  final String mobile;
+  final String otp;
+  final String requestId;
+  final String idToken;
+  final String? deviceId;
+
+  Map<String, dynamic> toJson() => _$LegacyLinkVerifyRequestDtoToJson(this);
+}
+
 // ─── Response DTOs ────────────────────────────────────────────────────────
 
 @JsonSerializable(createToJson: false)

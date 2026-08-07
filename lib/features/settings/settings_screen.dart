@@ -249,7 +249,8 @@ class SettingsScreen extends ConsumerWidget {
     // Open question logged in the FE-32 summary to add the endpoint.
     await ref.read(authControllerProvider.notifier).logout();
     if (!context.mounted) return;
-    context.go(AppRoute.authOtp);
+    // Phase 13: Google Sign-In is the primary re-entry point now.
+    context.go(AppRoute.authGoogle);
   }
 
   // ── Delete account ─────────────────────────────────────────────────────

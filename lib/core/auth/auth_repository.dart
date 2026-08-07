@@ -77,6 +77,60 @@ class AuthRepository {
     return _completeLogin(login);
   }
 
+  /// Phase 13 — primary login. Exchanges a Firebase ID token (already
+  /// minted client-side by [google_sign_in_screen.dart] after a real
+  /// Google Sign-In) for RADHA's own session. Same persistence semantics
+  /// as [verifyOtp] — reuses [_completeLogin] so the two paths can never
+  /// drift on what "being signed in" means.
+  Future<AuthSession> exchangeFirebaseToken({
+    required String idToken,
+    String? deviceId,
+  }) async {
+    final login = await _api.exchangeFirebaseToken(
+      FirebaseExchangeRequestDto(idToken: idToken, deviceId: deviceId),
+    );
+    return _completeLogin(login);
+  }
+
+  /// Phase 13 legacy-link recovery, step 1. Only succeeds for a mobile
+  /// number that already has an account — never creates one. Callers
+  /// must already hold an active Firebase session before this screen is
+  /// reachable (see `legacy_account_link_screen.dart`'s route guard).
+  Future<OtpRequestResult> requestLegacyLink(String mobile) async {
+    final res = await _api.requestLegacyLink(
+      LegacyLinkRequestRequestDto(mobile: mobile),
+    );
+    return OtpRequestResult(
+      requestId: res.requestId,
+      expiresIn: res.expiresIn,
+      rateLimitRemaining: res.rateLimitRemaining,
+      devOtp: res.devOtp,
+    );
+  }
+
+  /// Phase 13 legacy-link recovery, step 2. Links the already-held
+  /// Firebase identity onto the caller's pre-existing (phone-only)
+  /// account, preserving its role/tenant/store-access, then completes
+  /// the session exactly like any other login.
+  Future<AuthSession> linkLegacyAccount({
+    required String mobile,
+    required String otp,
+    required String requestId,
+    required String idToken,
+    String? deviceId,
+  }) async {
+    final login = await _api.verifyLegacyLink(
+      LegacyLinkVerifyRequestDto(
+        mobile: mobile,
+        otp: otp,
+        requestId: requestId,
+        idToken: idToken,
+        deviceId: deviceId,
+      ),
+    );
+    return _completeLogin(login);
+  }
+
   /// Rotates the access + refresh tokens. Only the tokens are rewritten — the
   /// user, tenant, roles, and store-access on disk are left intact. Throws
   /// [UnauthorizedException] if the refresh token has been revoked.

@@ -26,6 +26,27 @@ Map<String, dynamic> _$RefreshTokenRequestDtoToJson(
   RefreshTokenRequestDto instance,
 ) => <String, dynamic>{'refreshToken': instance.refreshToken};
 
+Map<String, dynamic> _$FirebaseExchangeRequestDtoToJson(
+  FirebaseExchangeRequestDto instance,
+) => <String, dynamic>{
+  'idToken': instance.idToken,
+  'deviceId': instance.deviceId,
+};
+
+Map<String, dynamic> _$LegacyLinkRequestRequestDtoToJson(
+  LegacyLinkRequestRequestDto instance,
+) => <String, dynamic>{'mobile': instance.mobile};
+
+Map<String, dynamic> _$LegacyLinkVerifyRequestDtoToJson(
+  LegacyLinkVerifyRequestDto instance,
+) => <String, dynamic>{
+  'mobile': instance.mobile,
+  'otp': instance.otp,
+  'requestId': instance.requestId,
+  'idToken': instance.idToken,
+  'deviceId': instance.deviceId,
+};
+
 OtpRequestResponse _$OtpRequestResponseFromJson(Map<String, dynamic> json) =>
     OtpRequestResponse(
       requestId: json['requestId'] as String,
