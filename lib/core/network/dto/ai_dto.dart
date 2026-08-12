@@ -220,6 +220,7 @@ class LabelTextAnalysis {
     this.nutritionalInfo = const {},
     this.healthFlags = const [],
     this.summary,
+    this.bodyEffects = const [],
     this.whyItMatters,
     this.whoShouldLimit = const [],
     this.practicalAdvice,
@@ -234,6 +235,7 @@ class LabelTextAnalysis {
   final Map<String, num> nutritionalInfo;
   final List<String> healthFlags;
   final String? summary;
+  final List<String> bodyEffects;
   final String? whyItMatters;
   final List<String> whoShouldLimit;
   final String? practicalAdvice;
@@ -281,6 +283,7 @@ class LabelTextAnalysis {
       nutritionalInfo: numMap(json['nutritionalInfo']),
       healthFlags: strList(json['healthFlags']),
       summary: (json['summary'] as String?)?.trim(),
+      bodyEffects: strList(json['bodyEffects']),
       whyItMatters: (json['whyItMatters'] as String?)?.trim(),
       whoShouldLimit: strList(json['whoShouldLimit']),
       practicalAdvice: (json['practicalAdvice'] as String?)?.trim(),

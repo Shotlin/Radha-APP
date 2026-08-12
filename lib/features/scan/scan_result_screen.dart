@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -1064,6 +1065,14 @@ class _AiInsightCard extends ConsumerStatefulWidget {
 
 class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
   AsyncValue<LabelTextAnalysis>? _state;
+  final FlutterTts _tts = FlutterTts();
+  bool _isSpeaking = false;
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1107,6 +1116,41 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
     return lines.join('\n');
   }
 
+  String _speechText(LabelTextAnalysis analysis) {
+    final parts = <String>[
+      if (analysis.summary?.isNotEmpty ?? false) analysis.summary!,
+      if (analysis.bodyEffects.isNotEmpty)
+        'What it may do in the body. ${analysis.bodyEffects.join(' ')}',
+      if (analysis.whyItMatters?.isNotEmpty ?? false)
+        'Why it matters. ${analysis.whyItMatters}',
+      if (analysis.whoShouldLimit.isNotEmpty)
+        'People who should limit it. ${analysis.whoShouldLimit.join('. ')}',
+      if (analysis.practicalAdvice?.isNotEmpty ?? false)
+        'Practical advice. ${analysis.practicalAdvice}',
+    ];
+    return parts.join(' ');
+  }
+
+  Future<void> _toggleSpeech(LabelTextAnalysis analysis) async {
+    if (_isSpeaking) {
+      await _tts.stop();
+      if (mounted) setState(() => _isSpeaking = false);
+      return;
+    }
+    final text = _speechText(analysis);
+    if (text.trim().isEmpty) return;
+    await _tts.setLanguage('en-IN');
+    await _tts.setSpeechRate(0.46);
+    _tts.setCompletionHandler(() {
+      if (mounted) setState(() => _isSpeaking = false);
+    });
+    _tts.setCancelHandler(() {
+      if (mounted) setState(() => _isSpeaking = false);
+    });
+    if (mounted) setState(() => _isSpeaking = true);
+    await _tts.speak(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1146,6 +1190,16 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
                   ),
                 ),
               ),
+              if (analysis != null)
+                IconButton(
+                  tooltip: _isSpeaking ? 'Stop audio' : 'Listen to AI report',
+                  onPressed: () => _toggleSpeech(analysis),
+                  icon: Icon(
+                    _isSpeaking
+                        ? Icons.stop_circle_outlined
+                        : Icons.volume_up_outlined,
+                  ),
+                ),
               if (state is AsyncLoading<LabelTextAnalysis>)
                 const SizedBox(
                   width: 16,
@@ -1185,6 +1239,21 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
             ),
             const SizedBox(height: RadhaSpacing.space4),
             Text(analysis!.whyItMatters!, style: theme.textTheme.bodyMedium),
+          ],
+          if (analysis?.bodyEffects.isNotEmpty ?? false) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            Text(
+              'What it may do in the body',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: RadhaSpacing.space4),
+            for (final effect in analysis!.bodyEffects)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 5),
+                child: Text('• $effect', style: theme.textTheme.bodyMedium),
+              ),
           ],
           if (analysis?.whoShouldLimit.isNotEmpty ?? false) ...[
             const SizedBox(height: RadhaSpacing.space12),
