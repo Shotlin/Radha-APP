@@ -174,9 +174,7 @@ class IngredientExplanation {
           .toList(growable: false);
     } else {
       final confidence = json['confidence'] as String?;
-      flags = (confidence == 'low')
-          ? const ['low-confidence']
-          : null;
+      flags = (confidence == 'low') ? const ['low-confidence'] : null;
     }
 
     final lang =
@@ -222,6 +220,9 @@ class LabelTextAnalysis {
     this.nutritionalInfo = const {},
     this.healthFlags = const [],
     this.summary,
+    this.whyItMatters,
+    this.whoShouldLimit = const [],
+    this.practicalAdvice,
     this.warnings = const [],
   });
 
@@ -233,6 +234,9 @@ class LabelTextAnalysis {
   final Map<String, num> nutritionalInfo;
   final List<String> healthFlags;
   final String? summary;
+  final String? whyItMatters;
+  final List<String> whoShouldLimit;
+  final String? practicalAdvice;
 
   /// 0–1 confidence the analysis is trustworthy. Low values drive a
   /// "try a clearer photo" hint rather than a confident card.
@@ -247,7 +251,11 @@ class LabelTextAnalysis {
 
   factory LabelTextAnalysis.fromJson(Map<String, dynamic> json) {
     List<String> strList(dynamic v) => (v is List)
-        ? v.whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        ? v
+              .whereType<String>()
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList()
         : const [];
     Map<String, num> numMap(dynamic v) {
       if (v is! Map) return const {};
@@ -273,6 +281,9 @@ class LabelTextAnalysis {
       nutritionalInfo: numMap(json['nutritionalInfo']),
       healthFlags: strList(json['healthFlags']),
       summary: (json['summary'] as String?)?.trim(),
+      whyItMatters: (json['whyItMatters'] as String?)?.trim(),
+      whoShouldLimit: strList(json['whoShouldLimit']),
+      practicalAdvice: (json['practicalAdvice'] as String?)?.trim(),
       confidence: conf is num ? conf.toDouble() : 0.0,
       warnings: strList(json['warnings']),
     );
@@ -383,7 +394,11 @@ class LabelPhotoAnalysis {
 
   factory LabelPhotoAnalysis.fromJson(Map<String, dynamic> json) {
     List<String> strList(dynamic v) => (v is List)
-        ? v.whereType<String>().map((s) => s.trim()).where((s) => s.isNotEmpty).toList()
+        ? v
+              .whereType<String>()
+              .map((s) => s.trim())
+              .where((s) => s.isNotEmpty)
+              .toList()
         : const [];
 
     final conf = json['confidence'];
@@ -454,9 +469,7 @@ class HealthyAlternative {
       name: (json['name'] as String?) ?? '',
       brand: (json['brand'] as String?) ?? '',
       imageUrl:
-          (json['imageUrl'] as String?) ??
-          (json['image'] as String?) ??
-          '',
+          (json['imageUrl'] as String?) ?? (json['image'] as String?) ?? '',
       healthScore: score is num ? score.toInt() : 0,
       priceInr: price is num ? price : 0,
       affiliateLink: json['affiliateLink'] as String?,

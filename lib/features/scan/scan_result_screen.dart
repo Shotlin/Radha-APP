@@ -1068,8 +1068,8 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
   @override
   void initState() {
     super.initState();
-    final source = widget.product.description?.trim();
-    if (source != null && source.isNotEmpty) {
+    final source = _analysisSource(widget.product);
+    if (source.isNotEmpty) {
       Future<void>.microtask(() => _load(source));
     }
   }
@@ -1087,16 +1087,36 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
     }
   }
 
+  String _analysisSource(ProductLookupItem product) {
+    final lines = <String>[
+      'Product name: ${product.name}',
+      if (product.brand?.trim().isNotEmpty ?? false) 'Brand: ${product.brand}',
+      if (product.subCategory?.trim().isNotEmpty ?? false)
+        'Category: ${product.subCategory}',
+      if (product.nutrition?.carbohydrates != null)
+        'Carbohydrates per 100g/ml: ${product.nutrition!.carbohydrates}',
+      if (product.nutrition?.sugars != null)
+        'Sugars per 100g/ml: ${product.nutrition!.sugars}',
+      if (product.nutrition?.sodium != null)
+        'Sodium per 100g/ml: ${product.nutrition!.sodium}',
+      if (product.nutrition?.isProcessed != null)
+        'Processing: ${product.nutrition!.isProcessed}',
+      if (product.description?.trim().isNotEmpty ?? false)
+        'Ingredients/label: ${product.description!.trim()}',
+    ];
+    return lines.join('\n');
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final source = widget.product.description?.trim();
+    final source = _analysisSource(widget.product);
     final state = _state;
     final analysis = state?.valueOrNull;
     final hasFlags = analysis?.healthFlags.isNotEmpty ?? false;
 
-    if (source == null || source.isEmpty) {
+    if (source.isEmpty) {
       return _AiEmptyCard(
         title: 'AI product insight',
         body:
@@ -1154,6 +1174,43 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
                   ),
               ],
             ),
+          ],
+          if (analysis?.whyItMatters?.trim().isNotEmpty ?? false) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            Text(
+              'Why it matters',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: RadhaSpacing.space4),
+            Text(analysis!.whyItMatters!, style: theme.textTheme.bodyMedium),
+          ],
+          if (analysis?.whoShouldLimit.isNotEmpty ?? false) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            Text(
+              'Who should limit it',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: RadhaSpacing.space4),
+            for (final group in analysis!.whoShouldLimit)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text('• $group', style: theme.textTheme.bodyMedium),
+              ),
+          ],
+          if (analysis?.practicalAdvice?.trim().isNotEmpty ?? false) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            Text(
+              'Practical advice',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: RadhaSpacing.space4),
+            Text(analysis!.practicalAdvice!, style: theme.textTheme.bodyMedium),
           ],
           if (analysis == null && state is AsyncError) ...[
             Text(
