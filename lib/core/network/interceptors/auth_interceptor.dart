@@ -111,6 +111,11 @@ class AuthInterceptor extends Interceptor {
     } on DioException {
       // Retry-after-refresh failed — propagate original 401.
       return handler.next(err);
+    } catch (_) {
+      // A malformed/partial refresh response must not leave the interceptor
+      // future in an errored state or surface as an app crash. The original
+      // request still receives its 401 and the caller can handle it normally.
+      return handler.next(err);
     }
   }
 
