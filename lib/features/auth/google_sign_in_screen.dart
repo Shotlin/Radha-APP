@@ -25,8 +25,7 @@ class GoogleSignInScreen extends ConsumerStatefulWidget {
   const GoogleSignInScreen({super.key});
 
   @override
-  ConsumerState<GoogleSignInScreen> createState() =>
-      _GoogleSignInScreenState();
+  ConsumerState<GoogleSignInScreen> createState() => _GoogleSignInScreenState();
 }
 
 class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
@@ -49,8 +48,9 @@ class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
       // as otp_verify_screen.dart: once the session becomes non-null the
       // router's refreshListenable can redirect mid-await.
       final pendingRaw = await storage.readPendingOnboardingSegment();
-      final segment =
-          pendingRaw != null ? onboardingSegmentDtoFromWire(pendingRaw) : null;
+      final segment = pendingRaw != null
+          ? onboardingSegmentDtoFromWire(pendingRaw)
+          : null;
       final cameFromBusinessOnboarding = pendingRaw == 'business_owner';
 
       final idToken = await signInWithGoogleGetIdToken();
@@ -76,12 +76,18 @@ class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
       // User backed out of the account picker — not an error, no banner.
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() =>
-          _errorText = userMessageForCode(e.code, l10n: null, fallback: e.message));
+      setState(
+        () => _errorText = userMessageForCode(
+          e.code,
+          l10n: null,
+          fallback: e.message,
+        ),
+      );
     } catch (_) {
       if (!mounted) return;
-      setState(() => _errorText =
-          "Couldn't sign in with Google. Please try again.");
+      setState(
+        () => _errorText = "Couldn't sign in with Google. Please try again.",
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -142,6 +148,26 @@ class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
                         ),
                       const SizedBox(width: 8),
                       const HeroBrand(),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: _loading
+                            ? null
+                            : () =>
+                                  context.push(AppRoute.authDeveloperBusiness),
+                        icon: const Icon(
+                          Icons.developer_mode_rounded,
+                          size: 17,
+                        ),
+                        label: const Text('Admin developer'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white,
+                          backgroundColor: Colors.black.withValues(alpha: 0.28),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 7,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

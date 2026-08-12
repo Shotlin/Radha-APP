@@ -14,6 +14,8 @@ import '../../core/network/api_client.dart';
 import '../../core/network/dto/ean_dto.dart';
 import '../../core/network/dto/health_assessment_dto.dart';
 import '../../core/network/dto/product_lookup_dto.dart';
+import 'data/label_analysis_repository.dart';
+import '../../core/network/dto/ai_dto.dart';
 import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
 import '../../design/theme.dart';
@@ -48,7 +50,9 @@ final _productByEanProvider = FutureProvider.autoDispose
         throw DioException(
           requestOptions: RequestOptions(path: '/api/v1/products/lookup/$ean'),
           response: Response(
-            requestOptions: RequestOptions(path: '/api/v1/products/lookup/$ean'),
+            requestOptions: RequestOptions(
+              path: '/api/v1/products/lookup/$ean',
+            ),
             statusCode: 404,
           ),
           type: DioExceptionType.badResponse,
@@ -149,7 +153,11 @@ class ScanResultScreen extends ConsumerWidget {
 /// blocks interaction and auto-dismisses; in reduced-motion it is suppressed
 /// (the approval pill + text already convey the state).
 class _ProductBody extends ConsumerStatefulWidget {
-  const _ProductBody({required this.product, required this.health, required this.ean});
+  const _ProductBody({
+    required this.product,
+    required this.health,
+    required this.ean,
+  });
 
   final ProductLookupItem product;
   final HealthAssessmentDto? health;
@@ -200,12 +208,16 @@ class _ProductBodyState extends ConsumerState<_ProductBody> {
                   const SizedBox(height: RadhaSpacing.space16),
                   _ApprovedEanPill(ean: widget.ean),
                   const SizedBox(height: RadhaSpacing.space24),
-                  _HealthSection(product: widget.product, health: widget.health),
+                  _HealthSection(
+                    product: widget.product,
+                    health: widget.health,
+                  ),
                   const SizedBox(height: RadhaSpacing.space16),
-                  _ExplainIngredientsButton(productId: widget.product.id),
+                  _AiInsightCard(product: widget.product),
                   const SizedBox(height: RadhaSpacing.space16),
                   _AllergenNote(
-                    allergens: widget.product.nutrition?.containsAllergens ?? const [],
+                    allergens:
+                        widget.product.nutrition?.containsAllergens ?? const [],
                   ),
                 ],
               ),
@@ -464,7 +476,9 @@ class _PillFrame extends StatelessWidget {
     final Color border = tinted
         ? accent.withValues(alpha: 0.35)
         : theme.colorScheme.outline;
-    final Color foreground = tinted ? accent : theme.colorScheme.onSurfaceVariant;
+    final Color foreground = tinted
+        ? accent
+        : theme.colorScheme.onSurfaceVariant;
 
     return Semantics(
       label: AppLocalizations.of(context).scanApprovalStatus(label),
@@ -566,7 +580,10 @@ class _HealthSection extends StatelessWidget {
                   ),
                 )
               else
-                _GradeChip(grade: health.overallGrade, status: health.healthStatus),
+                _GradeChip(
+                  grade: health.overallGrade,
+                  status: health.healthStatus,
+                ),
             ],
           ),
           const SizedBox(height: RadhaSpacing.space16),
@@ -630,7 +647,8 @@ class _HealthSection extends StatelessWidget {
             const SizedBox(height: RadhaSpacing.space8),
             _NutritionFactsGrid(nutrition: nutrition),
           ],
-          if (product.description != null && product.description!.trim().isNotEmpty) ...[
+          if (product.description != null &&
+              product.description!.trim().isNotEmpty) ...[
             const SizedBox(height: RadhaSpacing.space16),
             const Divider(height: 1),
             const SizedBox(height: RadhaSpacing.space16),
@@ -661,7 +679,8 @@ class _HealthSection extends StatelessWidget {
     // Lead with the most severe warning (if any), else the first positive.
     final worst = health.warnings.isNotEmpty
         ? health.warnings.reduce(
-            (a, b) => _severityRank(b.severity) > _severityRank(a.severity) ? b : a,
+            (a, b) =>
+                _severityRank(b.severity) > _severityRank(a.severity) ? b : a,
           )
         : null;
     return worst?.message ?? health.positives.first.message;
@@ -673,21 +692,34 @@ class _HealthSection extends StatelessWidget {
     _ => 0,
   };
 
-  static _HealthLevel _sugarLevel(HealthAssessmentDto? health, ProductNutrition? nutrition) {
+  static _HealthLevel _sugarLevel(
+    HealthAssessmentDto? health,
+    ProductNutrition? nutrition,
+  ) {
     if (health == null) return _HealthLevel.unknown;
     if (health.warningOfType('high_sugar')) return _HealthLevel.bad;
     if (health.positiveOfType('low_sugar')) return _HealthLevel.good;
-    return nutrition?.sugars != null ? _HealthLevel.moderate : _HealthLevel.unknown;
+    return nutrition?.sugars != null
+        ? _HealthLevel.moderate
+        : _HealthLevel.unknown;
   }
 
-  static _HealthLevel _saltLevel(HealthAssessmentDto? health, ProductNutrition? nutrition) {
+  static _HealthLevel _saltLevel(
+    HealthAssessmentDto? health,
+    ProductNutrition? nutrition,
+  ) {
     if (health == null) return _HealthLevel.unknown;
     if (health.warningOfType('high_sodium')) return _HealthLevel.bad;
     if (health.positiveOfType('low_sodium')) return _HealthLevel.good;
-    return nutrition?.sodium != null ? _HealthLevel.moderate : _HealthLevel.unknown;
+    return nutrition?.sodium != null
+        ? _HealthLevel.moderate
+        : _HealthLevel.unknown;
   }
 
-  static _HealthLevel _fatLevel(HealthAssessmentDto? health, ProductNutrition? nutrition) {
+  static _HealthLevel _fatLevel(
+    HealthAssessmentDto? health,
+    ProductNutrition? nutrition,
+  ) {
     if (health == null) return _HealthLevel.unknown;
     if (health.warningOfType('high_oil') ||
         health.warningOfType('high_saturated_fat') ||
@@ -695,15 +727,18 @@ class _HealthSection extends StatelessWidget {
       return _HealthLevel.bad;
     }
     if (health.positiveOfType('no_trans_fat')) return _HealthLevel.good;
-    return nutrition?.fat != null ? _HealthLevel.moderate : _HealthLevel.unknown;
+    return nutrition?.fat != null
+        ? _HealthLevel.moderate
+        : _HealthLevel.unknown;
   }
 
-  static _HealthLevel _processedLevel(HealthAssessmentDto? health) => switch (health?.isProcessed) {
-    'not' => _HealthLevel.good,
-    'lightly' => _HealthLevel.moderate,
-    'ultra' => _HealthLevel.bad,
-    _ => _HealthLevel.unknown,
-  };
+  static _HealthLevel _processedLevel(HealthAssessmentDto? health) =>
+      switch (health?.isProcessed) {
+        'not' => _HealthLevel.good,
+        'lightly' => _HealthLevel.moderate,
+        'ultra' => _HealthLevel.bad,
+        _ => _HealthLevel.unknown,
+      };
 
   static _HealthLevel _childSafetyLevel(HealthAssessmentDto? health) =>
       switch (health?.childSafety.status) {
@@ -765,16 +800,22 @@ class _NutritionFactsGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final rows = <(String, String)>[
-      if (nutrition.calories != null) ('Energy', '${nutrition.calories!.toStringAsFixed(0)} kcal'),
-      if (nutrition.protein != null) ('Protein', '${nutrition.protein!.toStringAsFixed(1)} g'),
+      if (nutrition.calories != null)
+        ('Energy', '${nutrition.calories!.toStringAsFixed(0)} kcal'),
+      if (nutrition.protein != null)
+        ('Protein', '${nutrition.protein!.toStringAsFixed(1)} g'),
       if (nutrition.carbohydrates != null)
         ('Carbohydrate', '${nutrition.carbohydrates!.toStringAsFixed(1)} g'),
-      if (nutrition.sugars != null) ('Sugars', '${nutrition.sugars!.toStringAsFixed(1)} g'),
-      if (nutrition.fat != null) ('Fat', '${nutrition.fat!.toStringAsFixed(1)} g'),
+      if (nutrition.sugars != null)
+        ('Sugars', '${nutrition.sugars!.toStringAsFixed(1)} g'),
+      if (nutrition.fat != null)
+        ('Fat', '${nutrition.fat!.toStringAsFixed(1)} g'),
       if (nutrition.saturatedFat != null)
         ('Saturated fat', '${nutrition.saturatedFat!.toStringAsFixed(1)} g'),
-      if (nutrition.fiber != null) ('Fiber', '${nutrition.fiber!.toStringAsFixed(1)} g'),
-      if (nutrition.sodium != null) ('Sodium', '${nutrition.sodium!.toStringAsFixed(0)} mg'),
+      if (nutrition.fiber != null)
+        ('Fiber', '${nutrition.fiber!.toStringAsFixed(1)} g'),
+      if (nutrition.sodium != null)
+        ('Sodium', '${nutrition.sodium!.toStringAsFixed(0)} mg'),
     ];
     return Wrap(
       spacing: RadhaSpacing.space16,
@@ -839,9 +880,10 @@ class _ScoreGaugeState extends State<_ScoreGauge>
       duration: const Duration(milliseconds: 900),
     );
     _ctrl = ctrl;
-    _anim = Tween<double>(begin: 0, end: widget.score! / 100).animate(
-      CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic),
-    );
+    _anim = Tween<double>(
+      begin: 0,
+      end: widget.score! / 100,
+    ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeOutCubic));
     if (reduceMotion) {
       ctrl.value = 1.0;
     } else {
@@ -1009,65 +1051,176 @@ class _HealthChip extends StatelessWidget {
   }
 }
 
-// ─── Explain ingredients (AI) ────────────────────────────────────────────────
+// ─── AI insight ──────────────────────────────────────────────────────────────
 
-class _ExplainIngredientsButton extends StatelessWidget {
-  const _ExplainIngredientsButton({required this.productId});
+class _AiInsightCard extends ConsumerStatefulWidget {
+  const _AiInsightCard({required this.product});
 
-  final String productId;
+  final ProductLookupItem product;
 
-  /// Kebab-case slug derived from the product id for the `/ingredients/:slug`
-  /// route. The backend normalises again server-side.
-  String get _slug {
-    final s = productId
-        .toLowerCase()
-        .trim()
-        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
-        .replaceAll(RegExp(r'^-+|-+$'), '');
-    return s.isEmpty ? 'ingredient' : s;
+  @override
+  ConsumerState<_AiInsightCard> createState() => _AiInsightCardState();
+}
+
+class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
+  AsyncValue<LabelTextAnalysis>? _state;
+
+  @override
+  void initState() {
+    super.initState();
+    final source = widget.product.description?.trim();
+    if (source != null && source.isNotEmpty) {
+      Future<void>.microtask(() => _load(source));
+    }
+  }
+
+  Future<void> _load(String source) async {
+    if (!mounted) return;
+    setState(() => _state = const AsyncLoading());
+    try {
+      final result = await ref
+          .read(labelAnalysisRepositoryProvider)
+          .analyzeTranscript(transcript: source);
+      if (mounted) setState(() => _state = AsyncData(result));
+    } catch (error, stack) {
+      if (mounted) setState(() => _state = AsyncError(error, stack));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainer,
-      borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
-      child: InkWell(
-        onTap: () {
-          HapticFeedback.selectionClick();
-          context.push('/ingredients/$_slug');
-        },
-        borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
-        child: Container(
-          padding: const EdgeInsets.all(RadhaSpacing.space16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
-            border: Border.all(color: theme.colorScheme.outline),
-          ),
-          child: Row(
+    final scheme = theme.colorScheme;
+    final source = widget.product.description?.trim();
+    final state = _state;
+    final analysis = state?.valueOrNull;
+    final hasFlags = analysis?.healthFlags.isNotEmpty ?? false;
+
+    if (source == null || source.isEmpty) {
+      return _AiEmptyCard(
+        title: 'AI product insight',
+        body:
+            'Add a clear ingredients label to get a plain-language health suggestion.',
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(RadhaSpacing.space16),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.34),
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusLg),
+        border: Border.all(color: scheme.primary.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              const Icon(
-                Icons.auto_awesome_rounded,
-                size: 20,
-                color: RadhaColors.primary,
-              ),
-              const SizedBox(width: RadhaSpacing.space12),
+              Icon(Icons.auto_awesome_rounded, color: scheme.primary, size: 20),
+              const SizedBox(width: RadhaSpacing.space8),
               Expanded(
                 child: Text(
-                  AppLocalizations.of(context).scanResultExplainIngredients,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: theme.colorScheme.onSurface,
+                  'AI product insight',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              if (state is AsyncLoading<LabelTextAnalysis>)
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
             ],
           ),
-        ),
+          const SizedBox(height: RadhaSpacing.space12),
+          if (analysis?.summary?.trim().isNotEmpty ?? false)
+            Text(
+              analysis!.summary!,
+              style: theme.textTheme.bodyMedium?.copyWith(height: 1.45),
+            ),
+          if (hasFlags) ...[
+            const SizedBox(height: RadhaSpacing.space12),
+            Wrap(
+              spacing: RadhaSpacing.space8,
+              runSpacing: RadhaSpacing.space8,
+              children: [
+                for (final flag in analysis!.healthFlags)
+                  Chip(
+                    avatar: const Icon(Icons.insights_outlined, size: 16),
+                    label: Text(flag),
+                    visualDensity: VisualDensity.compact,
+                  ),
+              ],
+            ),
+          ],
+          if (analysis == null && state is AsyncError) ...[
+            Text(
+              'AI insight is temporarily unavailable.',
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: RadhaSpacing.space8),
+            TextButton.icon(
+              onPressed: () => _load(source),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+          if (analysis != null && analysis.confidence < 0.5) ...[
+            const SizedBox(height: RadhaSpacing.space8),
+            Text(
+              'Low confidence — verify this against the pack label.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AiEmptyCard extends StatelessWidget {
+  const _AiEmptyCard({required this.title, required this.body});
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(RadhaSpacing.space16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(RadhaRadii.radiusLg),
+        border: Border.all(color: theme.colorScheme.outline),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.auto_awesome_outlined, color: theme.colorScheme.primary),
+          const SizedBox(width: RadhaSpacing.space12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  body,
+                  style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1319,7 +1472,8 @@ class _ErrorBody extends ConsumerWidget {
     // chain (parallelized + OFF retry-once) makes a second attempt
     // meaningfully more likely to succeed than before, which is exactly
     // the "sometimes found, sometimes not" pattern this addresses.
-    final showRetryCta = kind == _ScanErrorKind.offline ||
+    final showRetryCta =
+        kind == _ScanErrorKind.offline ||
         kind == _ScanErrorKind.timeout ||
         kind == _ScanErrorKind.serverError;
 

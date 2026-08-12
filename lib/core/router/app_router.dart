@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/auth/google_sign_in_screen.dart';
+import '../../features/auth/developer_business_login_screen.dart';
 import '../../features/auth/legacy_account_link_screen.dart';
 import '../../features/auth/otp_request_screen.dart';
 import '../../features/auth/otp_verify_screen.dart';
@@ -76,6 +77,7 @@ class AppRoute {
   // are now reachable only from `authLegacyLink`'s internal navigation,
   // for pre-existing phone-only accounts.
   static const String authGoogle = '/auth/google';
+  static const String authDeveloperBusiness = '/auth/developer-business';
   static const String authLegacyLink = '/auth/legacy-link';
   static const String authOtp = '/auth/otp';
   static const String authOtpVerify = '/auth/otp/verify';
@@ -171,6 +173,7 @@ final Set<String> _publicPathPrefixes = <String>{
   AppRoute.splash,
   AppRoute.onboarding,
   AppRoute.authGoogle,
+  AppRoute.authDeveloperBusiness,
   AppRoute.authLegacyLink,
   AppRoute.authOtp,
   AppRoute.authOtpVerify,
@@ -180,6 +183,7 @@ bool _isPublic(String location) {
   if (location == AppRoute.splash ||
       location == AppRoute.onboarding ||
       location == AppRoute.authGoogle ||
+      location == AppRoute.authDeveloperBusiness ||
       location == AppRoute.authLegacyLink ||
       location == AppRoute.authOtp ||
       location == AppRoute.authOtpVerify) {
@@ -255,6 +259,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const GoogleSignInScreen(),
       ),
       GoRoute(
+        path: AppRoute.authDeveloperBusiness,
+        name: 'authDeveloperBusiness',
+        builder: (context, state) => const DeveloperBusinessLoginScreen(),
+      ),
+      GoRoute(
         path: AppRoute.authLegacyLink,
         name: 'authLegacyLink',
         builder: (context, state) => const LegacyAccountLinkScreen(),
@@ -277,8 +286,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           if (raw is Map<String, String>) {
             extra = raw;
           } else if (raw is Map) {
-            extra = raw.map((k, v) =>
-                MapEntry(k.toString(), v?.toString() ?? ''));
+            extra = raw.map(
+              (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
+            );
           } else {
             extra = const {};
           }
@@ -717,6 +727,7 @@ String? _redirect(Ref ref, GoRouterState state) {
   if (session == null && !isAuditor) {
     if (_isOnboarding(location) ||
         location == AppRoute.authGoogle ||
+        location == AppRoute.authDeveloperBusiness ||
         location == AppRoute.authLegacyLink ||
         location == AppRoute.authOtp ||
         location == AppRoute.authOtpVerify) {
@@ -771,8 +782,7 @@ String? _redirect(Ref ref, GoRouterState state) {
   }
 
   // 3d. Auditors must not reach home or scan — redirect to their task list.
-  if (isAuditor &&
-      (location == AppRoute.home || location == AppRoute.scan)) {
+  if (isAuditor && (location == AppRoute.home || location == AppRoute.scan)) {
     return AppRoute.tasks;
   }
 
