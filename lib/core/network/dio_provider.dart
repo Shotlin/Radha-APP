@@ -8,10 +8,11 @@ import 'package:radha_app/core/network/interceptors/logging_interceptor.dart';
 import 'package:radha_app/core/network/token_provider.dart';
 
 /// Base URL injected at build time via `--dart-define=API_BASE_URL=...`.
-/// Falls back to localhost for development.
+/// Production is the safe default so a release build can never silently point
+/// at an emulator-only localhost address when the define is omitted.
 const _baseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:3000',
+  defaultValue: 'https://radha.opslin.com',
 );
 
 /// Provides the singleton [Dio] instance configured with interceptors.
