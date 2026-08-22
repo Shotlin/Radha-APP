@@ -423,6 +423,41 @@ class LabelPhotoAnalysis {
   }
 }
 
+/// Result of `POST /api/v1/ai/date/analyze-photo` — the vision escalation
+/// path for the expiry-record wizard's date scanners specifically (see
+/// [DatePhotoAnalysisRepository]). Deliberately narrow: only the three
+/// fields the date wizard needs, not a full label parse.
+class DatePhotoAnalysis {
+  const DatePhotoAnalysis({
+    required this.confidence,
+    this.expiryDate,
+    this.mfgDate,
+    this.batchNumber,
+    this.warnings = const [],
+  });
+
+  /// ISO 8601 date (YYYY-MM-DD), or null if not legible in the photo.
+  final String? expiryDate;
+  final String? mfgDate;
+  final String? batchNumber;
+  final double confidence;
+  final List<String> warnings;
+
+  factory DatePhotoAnalysis.fromJson(Map<String, dynamic> json) {
+    final conf = json['confidence'];
+    final warningsRaw = json['warnings'];
+    return DatePhotoAnalysis(
+      expiryDate: (json['expiryDate'] as String?)?.trim(),
+      mfgDate: (json['mfgDate'] as String?)?.trim(),
+      batchNumber: (json['batchNumber'] as String?)?.trim(),
+      confidence: conf is num ? conf.toDouble() : 0.0,
+      warnings: (warningsRaw is List)
+          ? warningsRaw.whereType<String>().toList()
+          : const [],
+    );
+  }
+}
+
 // ─── BE-41 — `GET /api/v1/products/:ean/alternatives` ────────────────────
 //
 // Each item is a healthier candidate in the same category as the source

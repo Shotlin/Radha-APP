@@ -8,10 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../core/router/active_shell_branch.dart';
 import '../../core/router/app_router.dart';
 import '../../design/theme.dart';
 import '../../design/tokens.dart';
 import '../../l10n/generated/app_localizations.dart';
+import 'domain/barcode_candidate_tracker.dart';
 import 'utils/ean_validator.dart';
 
 /// Side length of the central scan window / reticle, in logical pixels.
@@ -72,12 +74,11 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
   Timer? _helpTimer;
 
   // Multi-frame consensus for the single-scan path — see
-  // _kRequiredAgreement. Reset whenever a differently-valued code is read,
-  // so pointing at a different item re-verifies from scratch instead of
-  // sticking with a stale candidate.
-  String? _candidateCode;
-  int _candidateStreak = 0;
-  bool get _candidateConfirmed => _candidateStreak >= _kRequiredAgreement;
+  // _kRequiredAgreement and BarcodeCandidateTracker's own doc for why a
+  // single stray misread decays an in-progress candidate instead of
+  // resetting it outright.
+  final _candidateTracker =
+      BarcodeCandidateTracker(requiredAgreement: _kRequiredAgreement);
 
   final TextEditingController _webEanController = TextEditingController();
 
@@ -136,14 +137,20 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
-        controller.stop();
+        _pauseCamera();
       case AppLifecycleState.resumed:
-        controller.start().then((_) {
-          if (mounted) _applyTorch();
-        });
+        _resumeCamera();
       case AppLifecycleState.detached:
         break;
     }
+  }
+
+  void _pauseCamera() => _controller?.stop();
+
+  void _resumeCamera() {
+    _controller?.start().then((_) {
+      if (mounted) _applyTorch();
+    });
   }
 
   void _startHelpTimer() {
@@ -197,29 +204,21 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
     if (_processing) return;
 
     // A checksum-valid single frame is treated only as a CANDIDATE, never
-    // an immediate result — see _kRequiredAgreement. A different code
-    // resets the streak (re-verify from scratch); the same code keeps
-    // climbing towards confirmation. Camera keeps running throughout —
-    // nothing navigates away until the user taps Proceed.
-    if (code != _candidateCode) {
-      setState(() {
-        _candidateCode = code;
-        _candidateStreak = 1;
-      });
-      return;
-    }
-
-    if (_candidateStreak >= _kRequiredAgreement) return;
-    setState(() => _candidateStreak++);
-    if (_candidateStreak == _kRequiredAgreement) {
+    // an immediate result — see _kRequiredAgreement. The tracker handles
+    // agreement/decay; camera keeps running throughout — nothing navigates
+    // away until the user taps Proceed.
+    final wasConfirmed = _candidateTracker.confirmed;
+    if (!_candidateTracker.addRead(code)) return;
+    setState(() {});
+    if (!wasConfirmed && _candidateTracker.confirmed) {
       HapticFeedback.mediumImpact();
       _helpTimer?.cancel();
     }
   }
 
   void _proceed() {
-    final code = _candidateCode;
-    if (code == null || !_candidateConfirmed || _processing) return;
+    final code = _candidateTracker.code;
+    if (code == null || !_candidateTracker.confirmed || _processing) return;
     _processing = true;
     HapticFeedback.mediumImpact();
     _controller?.stop();
@@ -230,8 +229,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       if (mounted) {
         setState(() {
           _processing = false;
-          _candidateCode = null;
-          _candidateStreak = 0;
+          _candidateTracker.reset();
         });
         await _controller?.start();
         // stop() force-reset the torch; restore the user's setting.
@@ -248,8 +246,7 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
       _batchCount = 0;
       _lastBatchCode = null;
       _showHelp = false;
-      _candidateCode = null;
-      _candidateStreak = 0;
+      _candidateTracker.reset();
     });
     if (_batchMode) {
       _helpTimer?.cancel();
@@ -365,6 +362,19 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
 
   @override
   Widget build(BuildContext context) {
+    // The tab shell keeps every branch mounted (IndexedStack), so leaving
+    // the Scan tab alone never stops this camera — without this, it can
+    // keep running behind another screen and collide with a second camera
+    // session opened there (Android allows only one open session per
+    // physical camera per process). See active_shell_branch.dart.
+    ref.listen<int>(activeShellBranchProvider, (previous, next) {
+      if (next != kScanBranchIndex) {
+        _pauseCamera();
+      } else if (previous != null && previous != kScanBranchIndex) {
+        _resumeCamera();
+        _startHelpTimer();
+      }
+    });
     if (kIsWeb) return _buildWebFallback(context);
     return _buildCameraScanner(context);
   }
@@ -464,12 +474,12 @@ class _ScanScreenState extends ConsumerState<ScanScreen>
             right: RadhaSpacing.space24,
             bottom: 184,
             child: Center(
-              child: _candidateCode != null
+              child: _candidateTracker.code != null
                   ? _ScanCandidateCard(
-                      code: _candidateCode!,
-                      streak: _candidateStreak,
+                      code: _candidateTracker.code!,
+                      streak: _candidateTracker.streak,
                       required: _kRequiredAgreement,
-                      confirmed: _candidateConfirmed,
+                      confirmed: _candidateTracker.confirmed,
                       onProceed: _proceed,
                     )
                   : _showHelp

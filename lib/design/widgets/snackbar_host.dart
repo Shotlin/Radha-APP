@@ -16,6 +16,7 @@
 //   * icon at start, label flexes, single-line ellipsis on overflow.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../tokens.dart';
 
@@ -53,6 +54,29 @@ class SnackbarHost {
       _show(message: message, variant: _SnackbarVariant.error);
 
   static void _show({
+    required String message,
+    required _SnackbarVariant variant,
+  }) {
+    // `FlutterError.onError` — one of this class's documented callers —
+    // fires for build-phase exceptions too (e.g. a widget throwing inside
+    // `build()`), which means this can be reached WHILE a build/layout/
+    // paint is already in progress. `showSnackBar()` mid-build is illegal
+    // and throws a second error that re-enters `FlutterError.onError`,
+    // which calls back in here again — an infinite crash loop (observed on
+    // I2217, 2026-08-22: a disposed-CameraController build error cascaded
+    // this way). Defer to right after the current frame in that case;
+    // otherwise show immediately as before.
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback(
+        (_) => _showNow(message: message, variant: variant),
+      );
+    } else {
+      _showNow(message: message, variant: variant);
+    }
+  }
+
+  static void _showNow({
     required String message,
     required _SnackbarVariant variant,
   }) {

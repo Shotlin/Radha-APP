@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../../core/network/dto/ean_dto.dart';
 import '../../core/network/dto/health_assessment_dto.dart';
 import '../../core/network/dto/product_lookup_dto.dart';
 import 'data/label_analysis_repository.dart';
+import 'data/speech_repository.dart';
 import '../../core/network/dto/ai_dto.dart';
 import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
@@ -1066,11 +1068,23 @@ class _AiInsightCard extends ConsumerStatefulWidget {
 class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
   AsyncValue<LabelTextAnalysis>? _state;
   final FlutterTts _tts = FlutterTts();
+  final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isSpeaking = false;
+  bool _isLoadingCloudVoice = false;
+
+  // Caches the last cloud-synthesized audio so replaying the SAME insight
+  // (tap → stop → tap again) doesn't re-run a ~10s generation call for
+  // audio that's already sitting on the device — a real gap reported on
+  // I2217 (2026-08-22): every tap regenerated from scratch instead of
+  // replaying. Keyed on the exact text so a genuinely different insight
+  // (a new scan) still triggers a fresh synthesis.
+  String? _cachedCloudText;
+  Uint8List? _cachedCloudAudio;
 
   @override
   void dispose() {
     _tts.stop();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -1131,14 +1145,75 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
     return parts.join(' ');
   }
 
+  /// Short-form text for the cloud voice specifically — NOT the same as
+  /// [_speechText]. A real call with the full multi-section text (~1700
+  /// chars) timed out twice against the free Fish Audio model even at 25s
+  /// (2026-08-22) — this free tier is simply too slow per-character for
+  /// that much text, no timeout budget fixes that. Just the summary
+  /// keeps cloud-voice requests fast enough to actually complete; the
+  /// local device voice still reads the full [_speechText] when it's
+  /// used (cloud unavailable/failed).
+  String _cloudSpeechText(LabelTextAnalysis analysis) {
+    final summary = analysis.summary?.trim() ?? '';
+    if (summary.isNotEmpty) return summary;
+    // No summary field on this analysis — fall back to the shortest
+    // meaningful thing available rather than nothing.
+    if (analysis.whyItMatters?.trim().isNotEmpty ?? false) {
+      return analysis.whyItMatters!.trim();
+    }
+    return '';
+  }
+
   Future<void> _toggleSpeech(LabelTextAnalysis analysis) async {
     if (_isSpeaking) {
+      await _audioPlayer.stop();
       await _tts.stop();
       if (mounted) setState(() => _isSpeaking = false);
       return;
     }
     final text = _speechText(analysis);
     if (text.trim().isEmpty) return;
+    final cloudText = _cloudSpeechText(analysis);
+
+    // Cloud voice (Fish Audio via OpenRouter, free tier) first — a nicer-
+    // sounding upgrade to the device voice below — but only for the short
+    // summary: a real call with the FULL text timed out twice against
+    // this free model even at 25s (see _cloudSpeechText). Skipping
+    // straight to the local voice for the full read avoids a guaranteed-
+    // to-fail round trip; any other failure also falls back below.
+    if (cloudText.isNotEmpty) {
+      // Already generated this exact insight's audio once this session —
+      // replay it instantly instead of paying another ~10s generation
+      // call for bytes that already exist on the device.
+      if (_cachedCloudText == cloudText && _cachedCloudAudio != null) {
+        _audioPlayer.onPlayerComplete.first.then((_) {
+          if (mounted) setState(() => _isSpeaking = false);
+        });
+        if (mounted) setState(() => _isSpeaking = true);
+        await _audioPlayer.play(BytesSource(_cachedCloudAudio!));
+        return;
+      }
+      if (mounted) setState(() => _isLoadingCloudVoice = true);
+      try {
+        final bytes = await ref.read(speechRepositoryProvider).synthesize(cloudText);
+        if (!mounted) return;
+        _cachedCloudText = cloudText;
+        _cachedCloudAudio = bytes;
+        _audioPlayer.onPlayerComplete.first.then((_) {
+          if (mounted) setState(() => _isSpeaking = false);
+        });
+        setState(() {
+          _isLoadingCloudVoice = false;
+          _isSpeaking = true;
+        });
+        await _audioPlayer.play(BytesSource(bytes));
+        return;
+      } catch (_) {
+        // Falls through to the local device voice (full text) below.
+      }
+    }
+
+    if (!mounted) return;
     await _tts.setLanguage('en-IN');
     await _tts.setSpeechRate(0.46);
     _tts.setCompletionHandler(() {
@@ -1147,7 +1222,10 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
     _tts.setCancelHandler(() {
       if (mounted) setState(() => _isSpeaking = false);
     });
-    if (mounted) setState(() => _isSpeaking = true);
+    setState(() {
+      _isLoadingCloudVoice = false;
+      _isSpeaking = true;
+    });
     await _tts.speak(text);
   }
 
@@ -1193,12 +1271,18 @@ class _AiInsightCardState extends ConsumerState<_AiInsightCard> {
               if (analysis != null)
                 IconButton(
                   tooltip: _isSpeaking ? 'Stop audio' : 'Listen to AI report',
-                  onPressed: () => _toggleSpeech(analysis),
-                  icon: Icon(
-                    _isSpeaking
-                        ? Icons.stop_circle_outlined
-                        : Icons.volume_up_outlined,
-                  ),
+                  onPressed: _isLoadingCloudVoice ? null : () => _toggleSpeech(analysis),
+                  icon: _isLoadingCloudVoice
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _isSpeaking
+                              ? Icons.stop_circle_outlined
+                              : Icons.volume_up_outlined,
+                        ),
                 ),
               if (state is AsyncLoading<LabelTextAnalysis>)
                 const SizedBox(

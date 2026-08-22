@@ -272,24 +272,37 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
 
   // ── Step 2 & 3: Dates ────────────────────────────────────────────
 
+  /// A single scan already reads the whole label in one pass — both the
+  /// on-device consensus and the AI vision escalation can return both
+  /// dates at once (see [DateScanResult]). Filling both fields here
+  /// (rather than only the field this button targeted) means scanning
+  /// once from either "Scan expiry"/"Scan mfg" covers both, instead of
+  /// needing a second scan-and-API-call for the other field.
+  void _applyDateScanResult(DateScanResult result) {
+    setState(() {
+      if (result.expiryDate != null) _expiryDate = result.expiryDate;
+      if (result.mfgDate != null) _mfgDate = result.mfgDate;
+    });
+  }
+
   Future<void> _scanExpiry() async {
-    final date = await Navigator.of(context).push<DateTime>(
+    final result = await Navigator.of(context).push<DateScanResult>(
       MaterialPageRoute(
         builder: (_) => const DateScannerScreen(mode: DateScanMode.expiry),
       ),
     );
-    if (date == null || !mounted) return;
-    setState(() => _expiryDate = date);
+    if (result == null || !mounted) return;
+    _applyDateScanResult(result);
   }
 
   Future<void> _scanMfg() async {
-    final date = await Navigator.of(context).push<DateTime>(
+    final result = await Navigator.of(context).push<DateScanResult>(
       MaterialPageRoute(
         builder: (_) => const DateScannerScreen(mode: DateScanMode.mfg),
       ),
     );
-    if (date == null || !mounted) return;
-    setState(() => _mfgDate = date);
+    if (result == null || !mounted) return;
+    _applyDateScanResult(result);
   }
 
   Future<void> _pickDate({required bool isMfg}) async {

@@ -9,6 +9,7 @@ import '../../features/sync/sync_status_banner.dart';
 import '../../l10n/generated/app_localizations.dart';
 import '../mode/app_mode_provider.dart';
 import '../offline/sync_service.dart';
+import 'active_shell_branch.dart';
 
 // Auditor gets a 3-tab shell: Expiry (branch 2), Tasks (branch 3), Profile (branch 4).
 // Display indices 0/1/2 map to StatefulShellBranch indices 2/3/4.
@@ -37,6 +38,18 @@ class RootShell extends ConsumerWidget {
     final displayIndex = isAuditor
         ? _kAuditorBranches.indexOf(branchIdx).clamp(0, 2)
         : branchIdx;
+
+    // Mirror the active branch into activeShellBranchProvider so screens in
+    // other branches (which have no reactive way to learn this on their
+    // own — see active_shell_branch.dart) can release resources like a
+    // running camera when their tab stops being visible. Deferred to a
+    // post-frame callback: writing a provider synchronously here would be
+    // mutating state during this widget's own build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      final notifier = ref.read(activeShellBranchProvider.notifier);
+      if (notifier.state != branchIdx) notifier.state = branchIdx;
+    });
 
     return Scaffold(
       body: Column(

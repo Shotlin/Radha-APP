@@ -2,6 +2,8 @@ plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Phase 10/13 — requires android/app/google-services.json to exist.
+    id("com.google.gms.google-services")
 }
 
 // ── Razorpay × AGP 9 namespace de-duplication ────────────────────────────────

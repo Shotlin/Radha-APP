@@ -167,6 +167,11 @@ class _QuickAuditScreenState extends ConsumerState<QuickAuditScreen>
   }
 
   void _teardown() {
+    // Set synchronously, before the async cleanup below even starts — a
+    // build that races this teardown must never see a controller that's
+    // non-null but mid-disposal (same "buildPreview() called on a disposed
+    // CameraController" crash-loop found and fixed in date_scanner_screen.dart).
+    _ready = false;
     final c = _controller;
     _controller = null;
     if (c != null) {

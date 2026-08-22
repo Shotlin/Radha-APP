@@ -44,3 +44,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Firebase config — kept out of git deliberately (Phase 10/13 decision,
+# 00_MASTER_PLAN.md §4): technically shippable, but not committed. Each
+# dev/CI environment places its own copy; the API key inside is
+# domain/package-restricted, not a bearer secret, but the file still
+# shouldn't live in the repo.
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
