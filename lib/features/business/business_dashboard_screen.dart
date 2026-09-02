@@ -884,18 +884,24 @@ class _QuickActionsGrid extends StatelessWidget {
           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: RadhaSpacing.space12),
-        for (var row = 0; row < 2; row++) ...[
+        // 4 columns, however many rows `actions` needs — was hardcoded to
+        // a fixed 2x4 (8 items), which threw a RangeError the moment the
+        // list length changed (dropping "Inventory" left 7).
+        for (var row = 0; row * 4 < actions.length; row++) ...[
           Row(
             children: [
               for (var col = 0; col < 4; col++) ...[
                 Expanded(
-                  child: _QuickActionTile(data: actions[row * 4 + col]),
+                  child: row * 4 + col < actions.length
+                      ? _QuickActionTile(data: actions[row * 4 + col])
+                      : const SizedBox.shrink(),
                 ),
                 if (col < 3) const SizedBox(width: RadhaSpacing.space8),
               ],
             ],
           ),
-          if (row == 0) const SizedBox(height: RadhaSpacing.space8),
+          if ((row + 1) * 4 < actions.length)
+            const SizedBox(height: RadhaSpacing.space8),
         ],
       ],
     );
