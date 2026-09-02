@@ -445,6 +445,21 @@ class _ExpiryCreateScreenState extends ConsumerState<ExpiryCreateScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(e.message)));
+    } on DioException catch (e) {
+      // SyncService.enqueue rethrows non-transient failures as the
+      // DioException produced by ErrorInterceptor, which carries the real
+      // typed ApiException in `.error` rather than throwing it directly —
+      // without this branch every server-side rejection (wrong role,
+      // validation, conflict) fell through to the generic message below
+      // and hid the actual reason the save failed.
+      if (!mounted) return;
+      final inner = e.error;
+      final msg = inner is ApiException && inner.message.isNotEmpty
+          ? inner.message
+          : AppLocalizations.of(context).exSubmitError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg)),
+      );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
