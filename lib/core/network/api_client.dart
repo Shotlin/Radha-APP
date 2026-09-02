@@ -316,6 +316,15 @@ abstract class ApiClient {
   @GET('/api/v1/stores/{storeId}')
   Future<StoreResponse> getStore(@Path('storeId') String storeId);
 
+  /// `PATCH /api/v1/stores/{storeId}` — Store Details screen. Owner/admin
+  /// only; name + full address are mandatory, GSTIN and business hours
+  /// optional.
+  @PATCH('/api/v1/stores/{storeId}')
+  Future<StoreResponse> updateStore(
+    @Path('storeId') String storeId,
+    @Body() UpdateStoreDto body,
+  );
+
   /// `POST /api/v1/stores/{storeId}/access` — invite a user to the store.
   /// Body: { mobile: string, role: 'manager' | 'staff' | 'auditor' }
   @POST('/api/v1/stores/{storeId}/access')

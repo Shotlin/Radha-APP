@@ -7,11 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:radha_app/core/auth/auth_controller.dart';
+import 'package:radha_app/core/auth/mobile_display.dart';
 import 'package:radha_app/core/network/api_client.dart';
 import 'package:radha_app/core/network/dto/inventory_dto.dart';
 import 'package:radha_app/core/network/dto/reports_dto.dart';
 import 'package:radha_app/core/network/dto/task_dto.dart';
 import 'package:radha_app/core/router/app_router.dart';
+import 'package:radha_app/core/store/store_providers.dart';
 import 'package:radha_app/design/app_assets.dart';
 import 'package:radha_app/design/tokens.dart';
 import 'package:radha_app/design/widgets/biz_screen_hero.dart';
@@ -206,8 +208,25 @@ class _HomeHeroBand extends ConsumerWidget {
     final l10n = AppLocalizations.of(context);
     final user = ref.watch(currentUserProvider);
     final fallback = l10n.homeGreetingFallbackName;
-    final rawName = user?.userId.split('-').first ?? fallback;
-    final name = rawName.isEmpty ? fallback : rawName;
+    // Was `user?.userId.split('-').first` — a truncated internal UUID
+    // fragment shown as the person's "name" (matches the fix already
+    // applied to the consumer Home screen's `_HeroGreeting`). Prefer a
+    // real display name, then the masked mobile, then the store's real
+    // name (fetched via the same provider the Profile header uses — the
+    // account may be a Google sign-in with neither a name nor mobile
+    // set), and only the generic fallback if none of those resolve.
+    final displayName = user?.name;
+    final rawMobile = user?.mobile;
+    final maskedMobile = (rawMobile != null && rawMobile.isNotEmpty)
+        ? maskMobileForDisplay(rawMobile)
+        : null;
+    final storeId = user?.selectedStoreId;
+    final storeName = storeId == null
+        ? null
+        : ref.watch(storeDetailsProvider(storeId)).valueOrNull?.name;
+    final name = (displayName != null && displayName.isNotEmpty)
+        ? displayName
+        : maskedMobile ?? storeName ?? fallback;
     final needsAttention = nearExpiry + lowStock + openTasks > 0;
 
     return BizScreenHero(

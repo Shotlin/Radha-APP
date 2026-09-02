@@ -52,6 +52,7 @@ import '../../features/support/support_screen.dart';
 import '../../features/ohs_dashboard/ohs_dashboard_screen.dart';
 import '../../features/business/business_dashboard_screen.dart';
 import '../../features/staff/staff_management_screen.dart';
+import '../../features/store/store_details_screen.dart';
 import '../../features/auditor/auditor_dashboard_screen.dart';
 import '../../features/family/family_sharing_screen.dart';
 import '../../features/reports/reports_screen.dart';
@@ -159,6 +160,7 @@ class AppRoute {
 
   // FE-NEW — Staff & Team management
   static const String staff = '/staff';
+  static const String storeDetails = '/store-details';
 
   // FE-NEW — Auditor role landing screen
   static const String auditorDashboard = '/auditor-dashboard';
@@ -676,6 +678,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: 'staff',
         parentNavigatorKey: _rootNavigatorKey,
         builder: (_, _) => const StaffManagementScreen(),
+      ),
+      GoRoute(
+        path: AppRoute.storeDetails,
+        name: 'storeDetails',
+        parentNavigatorKey: _rootNavigatorKey,
+        builder: (_, _) => const StoreDetailsScreen(),
       ),
       GoRoute(
         path: AppRoute.auditorDashboard,

@@ -21,8 +21,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/auth/mobile_display.dart';
 import '../../core/mode/app_mode_provider.dart';
-import '../../core/network/api_client.dart';
 import '../../core/router/app_router.dart';
+import '../../core/store/store_providers.dart';
 import '../../design/app_assets.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/biz_screen_hero.dart';
@@ -36,18 +36,6 @@ final _packageInfoProvider = FutureProvider<PackageInfo>((ref) {
   return PackageInfo.fromPlatform();
 });
 
-/// Store details (incl. the short `shortCode` shown in place of the raw
-/// store-id UUID). Best-effort: returns `null` on any failure rather than
-/// surfacing an error, since this only feeds a small identity chip, not
-/// the screen's primary content.
-final _storeDetailsProvider =
-    FutureProvider.family<StoreResponse?, String>((ref, storeId) async {
-  try {
-    return await ref.read(apiClientProvider).getStore(storeId);
-  } catch (_) {
-    return null;
-  }
-});
 
 /// Profile tab content. Sits inside the `RootShell`, which is why we don't
 /// own an `AppBar` of our own — the shell renders the nav bar at the bottom
@@ -156,7 +144,7 @@ List<Widget> _businessSections(
       icon: Icons.storefront_outlined,
       label: 'Store details',
       subtitle: 'Address, GSTIN, business hours',
-      onTap: () => context.push(AppRoute.selectStore),
+      onTap: () => context.push(AppRoute.storeDetails),
     ),
     if (isOwnerOrManager)
       _ActionRow(
@@ -641,13 +629,20 @@ class _BizStoreCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final storeName = user?.selectedStoreName ?? 'Your Store';
     final storeId = user?.selectedStoreId;
     final ohsAsync = ref.watch(homeOhsProvider);
     final ohsScore = ohsAsync.valueOrNull?.ohsScore;
-    final storeCode = storeId == null
+    final storeDetails = storeId == null
         ? null
-        : ref.watch(_storeDetailsProvider(storeId)).valueOrNull?.shortCode;
+        : ref.watch(storeDetailsProvider(storeId)).valueOrNull;
+    // `user?.selectedStoreName` is currently just the raw store-id UUID
+    // (see MeResponse.fromJson's flat-shape adapter in auth_dto.dart — the
+    // backend doesn't send a real per-store name on `/auth/me` today), so
+    // it's not a usable fallback here; prefer the fetched store's real
+    // `name` and show a neutral placeholder while that loads rather than
+    // ever rendering the UUID as if it were the store's name.
+    final storeName = storeDetails?.name ?? 'Your Store';
+    final storeCode = storeDetails?.shortCode;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
