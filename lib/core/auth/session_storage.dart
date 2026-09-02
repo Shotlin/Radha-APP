@@ -44,6 +44,9 @@ class SessionStorage {
   static const String kMobile = 'mobile';
   static const String kName = 'name';
 
+  // Phase 13 (Google Sign-In) — see AuthSession's `email` doc comment.
+  static const String kEmail = 'email';
+
   // Onboarding flag — read by the router to gate `/onboarding`.
   static const String kOnboardingComplete = 'onboarding_complete';
 
@@ -161,6 +164,10 @@ class SessionStorage {
         _storage.write(key: kName, value: session.name)
       else
         _storage.delete(key: kName),
+      if (session.email != null)
+        _storage.write(key: kEmail, value: session.email)
+      else
+        _storage.delete(key: kEmail),
     ]);
   }
 
@@ -203,6 +210,7 @@ class SessionStorage {
     final selectedStoreId = await readSelectedStoreId();
     final mobile = await _storage.read(key: kMobile);
     final name = await _storage.read(key: kName);
+    final email = await _storage.read(key: kEmail);
     return AuthSession(
       accessToken: access,
       refreshToken: refresh,
@@ -212,6 +220,7 @@ class SessionStorage {
       stores: stores,
       selectedStoreId: selectedStoreId,
       mobile: mobile,
+      email: email,
       name: name,
     );
   }

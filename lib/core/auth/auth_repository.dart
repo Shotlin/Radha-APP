@@ -224,6 +224,7 @@ class AuthRepository {
           : null,
       mobile: me.user.mobile,
       name: me.user.name,
+      email: me.user.email,
     );
     await _storage.writeSession(session);
     return session;

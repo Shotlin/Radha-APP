@@ -182,6 +182,7 @@ class AuthController extends AsyncNotifier<AuthSession?> {
             (freshStores.length == 1 ? freshStores.first.storeId : null),
         mobile: me.user.mobile ?? currentSession.mobile,
         name: me.user.name ?? currentSession.name,
+        email: me.user.email ?? currentSession.email,
       );
       await storage.writeSession(refreshed);
       state = AsyncData<AuthSession?>(refreshed);
@@ -217,6 +218,7 @@ class CurrentUser {
     this.selectedStoreName,
     this.mobile,
     this.name,
+    this.email,
   });
 
   final String userId;
@@ -236,6 +238,13 @@ class CurrentUser {
   /// callers should fall back to a masked [mobile] or a generic label —
   /// never to [userId], which is an internal UUID with no display value.
   final String? name;
+
+  /// Google account email (Phase 13 Google Sign-In), null for legacy
+  /// phone-only OTP accounts. Every account created via the primary
+  /// Google Sign-In path has this set — prefer it over [mobile] for
+  /// identity display since it reads as a real "you're signed in as"
+  /// value rather than a masked digit string.
+  final String? email;
 }
 
 /// Derived view of the auth state that ignores loading + error states. Use
@@ -258,5 +267,6 @@ final currentUserProvider = Provider<CurrentUser?>((ref) {
     selectedStoreName: selectedStore?.storeName,
     mobile: session.mobile,
     name: session.name,
+    email: session.email,
   );
 });

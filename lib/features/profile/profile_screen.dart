@@ -21,6 +21,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/auth/auth_controller.dart';
 import '../../core/auth/mobile_display.dart';
 import '../../core/mode/app_mode_provider.dart';
+import '../../core/network/api_client.dart';
 import '../../core/router/app_router.dart';
 import '../../design/app_assets.dart';
 import '../../design/tokens.dart';
@@ -33,6 +34,19 @@ import '../home/providers/home_summary_providers.dart';
 /// start, so reading it again here is essentially a no-op on real devices.
 final _packageInfoProvider = FutureProvider<PackageInfo>((ref) {
   return PackageInfo.fromPlatform();
+});
+
+/// Store details (incl. the short `shortCode` shown in place of the raw
+/// store-id UUID). Best-effort: returns `null` on any failure rather than
+/// surfacing an error, since this only feeds a small identity chip, not
+/// the screen's primary content.
+final _storeDetailsProvider =
+    FutureProvider.family<StoreResponse?, String>((ref, storeId) async {
+  try {
+    return await ref.read(apiClientProvider).getStore(storeId);
+  } catch (_) {
+    return null;
+  }
 });
 
 /// Profile tab content. Sits inside the `RootShell`, which is why we don't
@@ -631,6 +645,9 @@ class _BizStoreCard extends ConsumerWidget {
     final storeId = user?.selectedStoreId;
     final ohsAsync = ref.watch(homeOhsProvider);
     final ohsScore = ohsAsync.valueOrNull?.ohsScore;
+    final storeCode = storeId == null
+        ? null
+        : ref.watch(_storeDetailsProvider(storeId)).valueOrNull?.shortCode;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -669,7 +686,7 @@ class _BizStoreCard extends ConsumerWidget {
                   ),
                 ],
               ),
-              if (storeId != null) ...[
+              if (storeCode != null) ...[
                 const SizedBox(height: RadhaSpacing.space8),
                 Container(
                   padding: const EdgeInsets.symmetric(
@@ -681,10 +698,11 @@ class _BizStoreCard extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
                   ),
                   child: Text(
-                    'Store ID: $storeId',
+                    'Store ID: $storeCode',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: scheme.onSurfaceVariant,
                       letterSpacing: 0.4,
+                      fontSize: 10,
                     ),
                   ),
                 ),
@@ -782,7 +800,18 @@ class _BizOwnerCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final displayName = user?.userId ?? 'Owner';
+    // Never fall back to `user?.userId` here — it's an internal UUID with
+    // no display value (see CurrentUser's own doc comment on `name`).
+    // Prefer the Google account email (every account created via the
+    // primary Google Sign-In path has one), then the masked mobile for
+    // legacy OTP accounts, then a generic role-based label.
+    final email = user?.email;
+    final mobile = user?.mobile;
+    final displayName = (email != null && email.isNotEmpty)
+        ? email
+        : (mobile != null && mobile.isNotEmpty)
+            ? maskMobileForDisplay(mobile)
+            : 'Owner';
     final role = (user?.roles.isNotEmpty == true) ? user!.roles.first : 'owner';
 
     return Padding(
@@ -802,7 +831,7 @@ class _BizOwnerCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   displayName,
-                  style: theme.textTheme.titleSmall?.copyWith(
+                  style: theme.textTheme.bodySmall?.copyWith(
                     color: scheme.onSurface,
                     fontWeight: FontWeight.w700,
                   ),

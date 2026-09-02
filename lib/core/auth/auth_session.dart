@@ -25,6 +25,10 @@ class AuthSession with _$AuthSession {
     // `name` is often unset and older stored sessions won't have them.
     String? mobile,
     String? name,
+    // Phase 13 (Google Sign-In): set for Google-linked accounts, null for
+    // legacy phone-only OTP accounts. Threaded through so the Profile
+    // screen can show it instead of the raw user-id UUID.
+    String? email,
   }) = _AuthSession;
 
   factory AuthSession.fromJson(Map<String, dynamic> json) =>

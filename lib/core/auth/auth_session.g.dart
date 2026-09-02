@@ -19,6 +19,7 @@ _$AuthSessionImpl _$$AuthSessionImplFromJson(Map<String, dynamic> json) =>
       selectedStoreId: json['selectedStoreId'] as String?,
       mobile: json['mobile'] as String?,
       name: json['name'] as String?,
+      email: json['email'] as String?,
     );
 
 Map<String, dynamic> _$$AuthSessionImplToJson(_$AuthSessionImpl instance) =>
@@ -32,6 +33,7 @@ Map<String, dynamic> _$$AuthSessionImplToJson(_$AuthSessionImpl instance) =>
       'selectedStoreId': instance.selectedStoreId,
       'mobile': instance.mobile,
       'name': instance.name,
+      'email': instance.email,
     };
 
 _$StoreAccessImpl _$$StoreAccessImplFromJson(Map<String, dynamic> json) =>

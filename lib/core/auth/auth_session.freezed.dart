@@ -36,7 +36,11 @@ mixin _$AuthSession {
   // threaded through into the persisted session. Both nullable since
   // `name` is often unset and older stored sessions won't have them.
   String? get mobile => throw _privateConstructorUsedError;
-  String? get name => throw _privateConstructorUsedError;
+  String? get name =>
+      throw _privateConstructorUsedError; // Phase 13 (Google Sign-In): set for Google-linked accounts, null for
+  // legacy phone-only OTP accounts. Threaded through so the Profile
+  // screen can show it instead of the raw user-id UUID.
+  String? get email => throw _privateConstructorUsedError;
 
   /// Serializes this AuthSession to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -65,6 +69,7 @@ abstract class $AuthSessionCopyWith<$Res> {
     String? selectedStoreId,
     String? mobile,
     String? name,
+    String? email,
   });
 }
 
@@ -92,6 +97,7 @@ class _$AuthSessionCopyWithImpl<$Res, $Val extends AuthSession>
     Object? selectedStoreId = freezed,
     Object? mobile = freezed,
     Object? name = freezed,
+    Object? email = freezed,
   }) {
     return _then(
       _value.copyWith(
@@ -131,6 +137,10 @@ class _$AuthSessionCopyWithImpl<$Res, $Val extends AuthSession>
                 ? _value.name
                 : name // ignore: cast_nullable_to_non_nullable
                       as String?,
+            email: freezed == email
+                ? _value.email
+                : email // ignore: cast_nullable_to_non_nullable
+                      as String?,
           )
           as $Val,
     );
@@ -156,6 +166,7 @@ abstract class _$$AuthSessionImplCopyWith<$Res>
     String? selectedStoreId,
     String? mobile,
     String? name,
+    String? email,
   });
 }
 
@@ -182,6 +193,7 @@ class __$$AuthSessionImplCopyWithImpl<$Res>
     Object? selectedStoreId = freezed,
     Object? mobile = freezed,
     Object? name = freezed,
+    Object? email = freezed,
   }) {
     return _then(
       _$AuthSessionImpl(
@@ -221,6 +233,10 @@ class __$$AuthSessionImplCopyWithImpl<$Res>
             ? _value.name
             : name // ignore: cast_nullable_to_non_nullable
                   as String?,
+        email: freezed == email
+            ? _value.email
+            : email // ignore: cast_nullable_to_non_nullable
+                  as String?,
       ),
     );
   }
@@ -239,6 +255,7 @@ class _$AuthSessionImpl implements _AuthSession {
     this.selectedStoreId,
     this.mobile,
     this.name,
+    this.email,
   }) : _roles = roles,
        _stores = stores;
 
@@ -282,10 +299,15 @@ class _$AuthSessionImpl implements _AuthSession {
   final String? mobile;
   @override
   final String? name;
+  // Phase 13 (Google Sign-In): set for Google-linked accounts, null for
+  // legacy phone-only OTP accounts. Threaded through so the Profile
+  // screen can show it instead of the raw user-id UUID.
+  @override
+  final String? email;
 
   @override
   String toString() {
-    return 'AuthSession(accessToken: $accessToken, refreshToken: $refreshToken, userId: $userId, tenantId: $tenantId, roles: $roles, stores: $stores, selectedStoreId: $selectedStoreId, mobile: $mobile, name: $name)';
+    return 'AuthSession(accessToken: $accessToken, refreshToken: $refreshToken, userId: $userId, tenantId: $tenantId, roles: $roles, stores: $stores, selectedStoreId: $selectedStoreId, mobile: $mobile, name: $name, email: $email)';
   }
 
   @override
@@ -305,7 +327,8 @@ class _$AuthSessionImpl implements _AuthSession {
             (identical(other.selectedStoreId, selectedStoreId) ||
                 other.selectedStoreId == selectedStoreId) &&
             (identical(other.mobile, mobile) || other.mobile == mobile) &&
-            (identical(other.name, name) || other.name == name));
+            (identical(other.name, name) || other.name == name) &&
+            (identical(other.email, email) || other.email == email));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -321,6 +344,7 @@ class _$AuthSessionImpl implements _AuthSession {
     selectedStoreId,
     mobile,
     name,
+    email,
   );
 
   /// Create a copy of AuthSession
@@ -348,6 +372,7 @@ abstract class _AuthSession implements AuthSession {
     final String? selectedStoreId,
     final String? mobile,
     final String? name,
+    final String? email,
   }) = _$AuthSessionImpl;
 
   factory _AuthSession.fromJson(Map<String, dynamic> json) =
@@ -376,7 +401,11 @@ abstract class _AuthSession implements AuthSession {
   @override
   String? get mobile;
   @override
-  String? get name;
+  String? get name; // Phase 13 (Google Sign-In): set for Google-linked accounts, null for
+  // legacy phone-only OTP accounts. Threaded through so the Profile
+  // screen can show it instead of the raw user-id UUID.
+  @override
+  String? get email;
 
   /// Create a copy of AuthSession
   /// with the given fields replaced by the non-null parameter values.

@@ -28,12 +28,14 @@ import 'package:radha_app/core/network/dto/product_submission_dto.dart';
 import 'package:radha_app/core/network/dto/reports_dto.dart';
 import 'package:radha_app/core/network/dto/saved_product_dto.dart';
 import 'package:radha_app/core/network/dto/scan_dto.dart';
+import 'package:radha_app/core/network/dto/store_dto.dart';
 import 'package:radha_app/core/network/dto/subscription_dto.dart';
 import 'package:radha_app/core/network/dto/task_dto.dart';
 
 // Re-export auth DTOs so existing imports from this file keep working.
 export 'package:radha_app/core/network/dto/auth_dto.dart';
 export 'package:radha_app/core/network/dto/notification_dto.dart';
+export 'package:radha_app/core/network/dto/store_dto.dart';
 
 part 'api_client.g.dart';
 
@@ -309,6 +311,11 @@ abstract class ApiClient {
   Future<GrnResponse> getGrn(@Path('id') String id);
 
   // ─── Store Access / Staff Management (BE-10) ──────────────────────────
+  /// `GET /api/v1/stores/{storeId}` — store details, incl. the short
+  /// human-shareable `shortCode` shown on the Profile screen.
+  @GET('/api/v1/stores/{storeId}')
+  Future<StoreResponse> getStore(@Path('storeId') String storeId);
+
   /// `POST /api/v1/stores/{storeId}/access` — invite a user to the store.
   /// Body: { mobile: string, role: 'manager' | 'staff' | 'auditor' }
   @POST('/api/v1/stores/{storeId}/access')
