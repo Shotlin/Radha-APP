@@ -9,6 +9,7 @@ import '../../core/mode/app_mode_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/dto/task_dto.dart';
 import '../../core/router/app_router.dart';
+import '../../core/store/store_providers.dart';
 import '../../design/app_assets.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/biz_metric_row.dart';
@@ -362,6 +363,10 @@ class _StaffWorkloadView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final tasksAsync = ref.watch(_staffTasksProvider);
+    final storeId = ref.watch(currentUserProvider)?.selectedStoreId;
+    final staff = storeId == null
+        ? null
+        : ref.watch(storeStaffProvider(storeId)).valueOrNull;
 
     return tasksAsync.when(
       loading: () => const _TaskListSkeleton(),
@@ -369,13 +374,15 @@ class _StaffWorkloadView extends ConsumerWidget {
       data: (tasks) {
         final staffMap = <String, _StaffStats>{};
         for (final t in tasks) {
-          if (t.assigneeId == null || t.assigneeName == null) continue;
-          final entry = staffMap.putIfAbsent(
-            t.assigneeId!,
-            () => _StaffStats(name: t.assigneeName!),
-          );
-          entry.total++;
-          if (t.status == 'completed') entry.completed++;
+          final ids = t.assigneeIds;
+          if (ids == null || ids.isEmpty || staff == null) continue;
+          for (final id in ids) {
+            final name = resolveTaskAssigneeLabel([id], staff);
+            if (name == null) continue;
+            final entry = staffMap.putIfAbsent(id, () => _StaffStats(name: name));
+            entry.total++;
+            if (t.status == 'completed') entry.completed++;
+          }
         }
 
         if (staffMap.isEmpty) {
@@ -790,7 +797,9 @@ class _TaskListState extends ConsumerState<_TaskList> {
               items.where((t) => t.priority == widget.priorityFilter).toList();
         }
         if (widget.userId != null) {
-          items = items.where((t) => t.assigneeId == widget.userId).toList();
+          items = items
+              .where((t) => t.assigneeIds?.contains(widget.userId) ?? false)
+              .toList();
         }
 
         if (items.isEmpty) {
@@ -866,16 +875,16 @@ class _TaskListState extends ConsumerState<_TaskList> {
 }
 
 /// Single task card — title + priority chip, meta row, status dot + label.
-class _TaskTile extends StatefulWidget {
+class _TaskTile extends ConsumerStatefulWidget {
   const _TaskTile({required this.task});
 
   final TaskResponse task;
 
   @override
-  State<_TaskTile> createState() => _TaskTileState();
+  ConsumerState<_TaskTile> createState() => _TaskTileState();
 }
 
-class _TaskTileState extends State<_TaskTile> {
+class _TaskTileState extends ConsumerState<_TaskTile> {
   bool _pressed = false;
 
   void _set(bool v) {
@@ -889,6 +898,11 @@ class _TaskTileState extends State<_TaskTile> {
     final l10n = AppLocalizations.of(context);
     final task = widget.task;
     final done = task.status == 'completed';
+    final storeId = ref.watch(currentUserProvider)?.selectedStoreId;
+    final staff = storeId == null
+        ? null
+        : ref.watch(storeStaffProvider(storeId)).valueOrNull;
+    final assigneeLabel = resolveTaskAssigneeLabel(task.assigneeIds, staff);
 
     return GestureDetector(
       onTapDown: (_) => _set(true),
@@ -958,7 +972,7 @@ class _TaskTileState extends State<_TaskTile> {
                   ],
                 ],
               ),
-              if (task.assigneeName != null) ...[
+              if (assigneeLabel != null) ...[
                 const SizedBox(height: RadhaSpacing.space8),
                 Row(
                   children: [
@@ -969,12 +983,12 @@ class _TaskTileState extends State<_TaskTile> {
                     ),
                     const SizedBox(width: RadhaSpacing.space4),
                     Text(
-                      task.assigneeName!,
+                      assigneeLabel,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
-                    if (task.requiresEvidence == true) ...[
+                    if (task.requiresPhoto == true) ...[
                       const SizedBox(width: RadhaSpacing.space12),
                       Icon(
                         Icons.photo_camera_outlined,

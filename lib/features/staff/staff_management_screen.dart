@@ -15,13 +15,6 @@ import 'package:radha_app/design/tokens.dart';
 import 'package:radha_app/design/widgets/mor_companion.dart';
 import 'package:radha_app/design/widgets/primary_button.dart';
 
-/// The current store's team (`GET /stores/{id}/access`). Owner/manager only
-/// — see `StoresController.listStaff`'s doc comment.
-final _storeStaffProvider =
-    FutureProvider.family<List<StaffMemberResponse>, String>((ref, storeId) {
-  return ref.read(apiClientProvider).getStoreStaff(storeId);
-});
-
 String _roleLabel(String role) => role.isEmpty
     ? role
     : role[0].toUpperCase() + role.substring(1);
@@ -38,7 +31,7 @@ class StaffManagementScreen extends ConsumerWidget {
         : ref.watch(storeDetailsProvider(storeId)).valueOrNull?.name;
     final theme = Theme.of(context);
     final staffAsync =
-        storeId == null ? null : ref.watch(_storeStaffProvider(storeId));
+        storeId == null ? null : ref.watch(storeStaffProvider(storeId));
 
     return Scaffold(
       appBar: AppBar(
@@ -178,7 +171,7 @@ class StaffManagementScreen extends ConsumerWidget {
       backgroundColor: Colors.transparent,
       builder: (_) => _InviteSheetContent(storeId: storeId),
     ).then((invited) {
-      if (invited == true) ref.invalidate(_storeStaffProvider(storeId));
+      if (invited == true) ref.invalidate(storeStaffProvider(storeId));
     });
   }
 
@@ -211,7 +204,7 @@ class StaffManagementScreen extends ConsumerWidget {
     if (confirmed != true) return;
     try {
       await ref.read(apiClientProvider).revokeStoreAccess(storeId, member.userId);
-      ref.invalidate(_storeStaffProvider(storeId));
+      ref.invalidate(storeStaffProvider(storeId));
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

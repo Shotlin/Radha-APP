@@ -17,3 +17,13 @@ final storeDetailsProvider =
     FutureProvider.family<StoreResponse, String>((ref, storeId) {
   return ref.read(apiClientProvider).getStore(storeId);
 });
+
+/// A store's current team (`GET /stores/{id}/access`). Owner/manager/admin
+/// only (per `StoresController.listStaff`'s doc comment). Shared by the
+/// Create Task assignee picker and (via `staff_management_screen.dart`'s
+/// own copy, kept private there since it doesn't need cross-feature
+/// sharing) the Staff & roles team list.
+final storeStaffProvider =
+    FutureProvider.family<List<StaffMemberResponse>, String>((ref, storeId) {
+  return ref.read(apiClientProvider).getStoreStaff(storeId);
+});

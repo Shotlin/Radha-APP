@@ -275,6 +275,29 @@ abstract class ApiClient {
     @Body() UpdateTaskDto body,
   );
 
+  /// `POST /api/v1/tasks/{id}/start` — pending -> in_progress. Required
+  /// before [completeTask]: the backend's state machine has no direct
+  /// pending -> completed transition.
+  @POST('/api/v1/tasks/{id}/start')
+  Future<TaskResponse> startTask(@Path('id') String id);
+
+  /// `POST /api/v1/tasks/{id}/complete` — in_progress -> completed.
+  /// Only an active assignee (any role holder listed in
+  /// `task_assignments`, checked server-side) may call this — even the
+  /// owner who created the task can't unless they're also assigned.
+  @POST('/api/v1/tasks/{id}/complete')
+  Future<TaskResponse> completeTask(
+    @Path('id') String id,
+    @Body() CompleteTaskDto body,
+  );
+
+  /// `POST /api/v1/tasks/{id}/cancel` — a reason (min 1 char) is required.
+  @POST('/api/v1/tasks/{id}/cancel')
+  Future<TaskResponse> cancelTask(
+    @Path('id') String id,
+    @Body() Map<String, dynamic> body,
+  );
+
   @DELETE('/api/v1/tasks/{id}')
   Future<void> deleteTask(@Path('id') String id);
 

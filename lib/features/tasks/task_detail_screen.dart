@@ -6,7 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/network/dto/task_dto.dart';
+import '../../core/store/store_providers.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/mor_celebration.dart';
 import '../../design/widgets/primary_button.dart';
@@ -70,11 +72,17 @@ class TaskDetailScreen extends ConsumerStatefulWidget {
 class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
   bool _isUpdating = false;
 
+  /// Dispatches to the real workflow endpoint for `newStatus` — the
+  /// generic `PATCH /tasks/{id}` this used to call has no `status` field
+  /// in its backend schema at all, so it was silently discarded on
+  /// every call: the app showed "Moved to Completed" while the task's
+  /// actual status never changed. `pending -> completed` isn't a legal
+  /// transition either (see `TaskWorkflowService`), so completing a
+  /// still-pending task starts it first.
   Future<void> _transitionTo(String newStatus, TaskResponse task) async {
-    String? evidenceUrl;
-    if (newStatus == 'completed' && task.requiresEvidence == true) {
-      evidenceUrl = await _captureEvidence();
-      if (evidenceUrl == null) {
+    if (newStatus == 'completed' && task.requiresPhoto == true) {
+      final captured = await _captureEvidence();
+      if (captured == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -88,14 +96,29 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
       }
     }
 
+    String? cancelReason;
+    if (newStatus == 'cancelled') {
+      cancelReason = await _promptCancelReason();
+      if (cancelReason == null) return; // user backed out
+    }
+
     HapticFeedback.lightImpact();
     setState(() => _isUpdating = true);
     try {
       final client = ref.read(apiClientProvider);
-      await client.updateTask(
-        widget.taskId,
-        UpdateTaskDto(status: newStatus, evidenceUrl: evidenceUrl),
-      );
+      switch (newStatus) {
+        case 'in_progress':
+          await client.startTask(widget.taskId);
+        case 'completed':
+          if (task.status == 'pending') {
+            await client.startTask(widget.taskId);
+          }
+          await client.completeTask(widget.taskId, const CompleteTaskDto());
+        case 'cancelled':
+          await client.cancelTask(widget.taskId, {'reason': cancelReason});
+        default:
+          throw ArgumentError('Unsupported task transition: $newStatus');
+      }
       ref.invalidate(_taskDetailProvider(widget.taskId));
       if (mounted) {
         HapticFeedback.mediumImpact();
@@ -105,6 +128,11 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
             content: Text(l10n.taskMovedTo(_statusLabel(l10n, newStatus))),
           ),
         );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
       }
     } catch (_) {
       if (mounted) {
@@ -117,6 +145,37 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     } finally {
       if (mounted) setState(() => _isUpdating = false);
     }
+  }
+
+  Future<String?> _promptCancelReason() async {
+    final controller = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel this task?'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: 'Reason for cancelling'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Back'),
+          ),
+          TextButton(
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              Navigator.of(ctx).pop(text);
+            },
+            child: const Text('Cancel task'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return reason;
   }
 
   Future<String?> _captureEvidence() async {
@@ -155,6 +214,10 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     final localeName = Localizations.localeOf(context).languageCode;
+    final staff = task.storeId == null
+        ? null
+        : ref.watch(storeStaffProvider(task.storeId!)).valueOrNull;
+    final assigneeLabel = resolveTaskAssigneeLabel(task.assigneeIds, staff);
 
     return Column(
       children: [
@@ -183,12 +246,11 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
                   height: 1.15,
                 ),
               ),
-              if (task.assigneeName != null || task.dueDate != null) ...[
+              if (assigneeLabel != null || task.dueDate != null) ...[
                 const SizedBox(height: RadhaSpacing.space8),
                 Text(
                   [
-                    if (task.assigneeName != null)
-                      l10n.taskAssignedTo(task.assigneeName!),
+                    if (assigneeLabel != null) l10n.taskAssignedTo(assigneeLabel),
                     if (task.dueDate != null)
                       l10n.taskDueOn(_formatDate(task.dueDate!, localeName)),
                   ].join(' · '),
@@ -221,7 +283,7 @@ class _TaskDetailScreenState extends ConsumerState<TaskDetailScreen> {
                 ),
               ],
 
-              if (task.requiresEvidence == true) ...[
+              if (task.requiresPhoto == true) ...[
                 const SizedBox(height: RadhaSpacing.space20),
                 _EvidenceSection(task: task),
               ],
@@ -314,22 +376,21 @@ class _DetailsCard extends StatelessWidget {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     final rows = <(String, Widget)>[
-      if (task.type != null) (l10n.taskTypeLabel, Text(_titleCase(task.type!))),
-      if (task.priority != null)
-        (
-          l10n.taskPriorityLabel,
-          Text(
-            _priorityLabel(l10n, task.priority!),
-            style: TextStyle(
-              color: _priorityColor(task.priority!),
-              fontWeight: FontWeight.w700,
-            ),
+      (l10n.taskTypeLabel, Text(taskTypeLabel(task.type))),
+      (
+        l10n.taskPriorityLabel,
+        Text(
+          _priorityLabel(l10n, task.priority),
+          style: TextStyle(
+            color: _priorityColor(task.priority),
+            fontWeight: FontWeight.w700,
           ),
         ),
+      ),
       (
         l10n.taskEvidenceLabel,
         Text(
-          task.requiresEvidence == true
+          task.requiresPhoto == true
               ? l10n.taskEvidencePhotoRequired
               : l10n.taskEvidenceNotRequired,
         ),
@@ -377,9 +438,6 @@ class _DetailsCard extends StatelessWidget {
       ),
     );
   }
-
-  String _titleCase(String s) =>
-      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
 }
 
 // ─── Evidence ────────────────────────────────────────────────────────────────
@@ -393,8 +451,8 @@ class _EvidenceSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final hasEvidence =
-        task.evidenceUrls != null && task.evidenceUrls!.isNotEmpty;
+    final evidenceCount = task.evidenceCount ?? 0;
+    final hasEvidence = evidenceCount > 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -432,9 +490,7 @@ class _EvidenceSection extends StatelessWidget {
               Expanded(
                 child: Text(
                   hasEvidence
-                      ? l10n.taskEvidencePhotosAttached(
-                          task.evidenceUrls!.length,
-                        )
+                      ? l10n.taskEvidencePhotosAttached(evidenceCount)
                       : l10n.taskEvidencePhotoNeeded,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,

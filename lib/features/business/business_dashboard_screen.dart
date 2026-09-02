@@ -76,7 +76,15 @@ final _bizDashProvider = FutureProvider.autoDispose<_BizDashData>((ref) async {
       () => client.getDashboardSummary(storeId, daysAhead: 14),
       null,
     ),
-    _soft(() => client.getTasks(status: 'open', limit: 3), <TaskResponse>[]),
+    // 'open' isn't a real backend status (TASK_STATUSES has no such
+    // value) -- the csvEnum query parser silently drops unrecognised
+    // values, so this was quietly fetching ALL statuses, not just open
+    // ones. The actual "still needs doing" set is pending + in_progress
+    // + overdue.
+    _soft(
+      () => client.getTasks(status: 'pending,in_progress,overdue', limit: 3),
+      <TaskResponse>[],
+    ),
     _soft<InventorySummaryResponse?>(
       () => client.getInventorySummary(storeId),
       null,
@@ -1050,7 +1058,7 @@ class _TaskRow extends StatelessWidget {
   final TaskResponse task;
 
   Color _dotColor() {
-    final s = task.status ?? '';
+    final s = task.status;
     if (s == 'done' || s == 'completed') return RadhaColors.success;
     if (task.dueDate != null) {
       final due = DateTime.tryParse(task.dueDate!);
@@ -1091,15 +1099,6 @@ class _TaskRow extends StatelessWidget {
                     decorationColor: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                if (task.assigneeName != null) ...[
-                  const SizedBox(height: RadhaSpacing.space2),
-                  Text(
-                    task.assigneeName!,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),

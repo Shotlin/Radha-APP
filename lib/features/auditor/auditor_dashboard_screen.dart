@@ -280,7 +280,7 @@ class _AuditorTaskRow extends StatelessWidget {
   final TaskResponse task;
 
   Color _dotColor() {
-    final s = task.status ?? '';
+    final s = task.status;
     if (s == 'done' || s == 'completed') return RadhaColors.success;
     if (task.dueDate != null) {
       final due = DateTime.tryParse(task.dueDate!);

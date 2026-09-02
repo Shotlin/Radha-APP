@@ -16,26 +16,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_controller.dart';
 import '../../core/network/api_client.dart';
+import '../../core/network/api_exception.dart';
 import '../../core/network/dto/task_dto.dart';
+import '../../core/store/store_providers.dart';
 import '../../design/tokens.dart';
 import '../../design/widgets/primary_button.dart';
 import '../../l10n/generated/app_localizations.dart';
-
-/// Maps a backend task-type code to its localized label.
-String _taskTypeLabel(AppLocalizations l10n, String id) {
-  switch (id) {
-    case 'ean_audit':
-      return l10n.taskTypeEanAudit;
-    case 'expiry_check':
-      return l10n.taskTypeExpiryCheck;
-    case 'inventory_count':
-      return l10n.taskTypeInventoryCount;
-    case 'display_verification':
-      return l10n.taskTypeDisplayVerification;
-    default:
-      return l10n.taskTypeCustom;
-  }
-}
 
 /// Maps a backend priority code to its localized severity label.
 String _priorityLabel(AppLocalizations l10n, String id) {
@@ -53,6 +39,19 @@ String _priorityLabel(AppLocalizations l10n, String id) {
   }
 }
 
+/// Display label for one staff-picker row: prefers the real name, falls
+/// back to email/mobile, and always shows the role so an owner can tell
+/// two same-named people apart.
+String _staffDisplayLabel(StaffMemberResponse member) {
+  final identity = (member.name?.isNotEmpty ?? false)
+      ? member.name!
+      : member.email ?? member.mobile ?? 'Team member';
+  final role = member.role.isEmpty
+      ? ''
+      : ' (${member.role[0].toUpperCase()}${member.role.substring(1)})';
+  return '$identity$role';
+}
+
 /// Task creation screen — restricted to manager and admin roles.
 class TaskCreateScreen extends ConsumerStatefulWidget {
   const TaskCreateScreen({super.key});
@@ -65,21 +64,16 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _assigneeController = TextEditingController();
 
-  String _type = 'custom';
+  String _type = 'other';
   String _priority = 'medium';
   DateTime? _dueDate;
   bool _requiresEvidence = false;
   bool _isSubmitting = false;
 
-  static const _taskTypeIds = [
-    'ean_audit',
-    'expiry_check',
-    'inventory_count',
-    'display_verification',
-    'custom',
-  ];
+  /// Selected staff userId. Required — the backend has no concept of an
+  /// unassigned task at creation time (`assigneeIds` min length 1).
+  String? _assigneeId;
 
   static const _priorityIds = ['low', 'medium', 'high', 'urgent'];
 
@@ -87,17 +81,26 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
-    _assigneeController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_assigneeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Choose who this task is assigned to')),
+      );
+      return;
+    }
 
     HapticFeedback.lightImpact();
     setState(() => _isSubmitting = true);
     try {
       final currentUser = ref.read(currentUserProvider);
+      final storeId = currentUser?.selectedStoreId;
+      if (storeId == null) {
+        throw StateError('No store selected');
+      }
       final client = ref.read(apiClientProvider);
 
       await client.createTask(
@@ -108,12 +111,11 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
               : _descriptionController.text.trim(),
           type: _type,
           priority: _priority,
-          storeId: currentUser?.selectedStoreId,
-          assigneeId: _assigneeController.text.trim().isEmpty
-              ? null
-              : _assigneeController.text.trim(),
+          storeId: storeId,
+          assigneeIds: [_assigneeId!],
           dueDate: _dueDate?.toIso8601String(),
-          requiresEvidence: _requiresEvidence,
+          requiresPhoto: _requiresEvidence,
+          minimumEvidenceCount: _requiresEvidence ? 1 : null,
         ),
       );
 
@@ -124,6 +126,11 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
           ),
         );
         context.pop();
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
       }
     } catch (_) {
       if (mounted) {
@@ -157,6 +164,11 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
     final scheme = theme.colorScheme;
     final l10n = AppLocalizations.of(context);
     final currentUser = ref.watch(currentUserProvider);
+    final storeId = currentUser?.selectedStoreId;
+    final storeName =
+        storeId == null ? null : ref.watch(storeDetailsProvider(storeId)).valueOrNull?.name;
+    final staffAsync =
+        storeId == null ? null : ref.watch(storeStaffProvider(storeId));
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
     final isAuthorized =
@@ -266,9 +278,9 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
                     spacing: RadhaSpacing.space8,
                     runSpacing: RadhaSpacing.space8,
                     children: [
-                      for (final t in _taskTypeIds)
+                      for (final t in kTaskTypes)
                         _SelectChip(
-                          label: _taskTypeLabel(l10n, t),
+                          label: taskTypeLabel(t),
                           selected: _type == t,
                           onTap: () {
                             HapticFeedback.selectionClick();
@@ -318,28 +330,59 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
                   index: 6,
                   reduceMotion: reduceMotion,
                   child: TextFormField(
-                    initialValue:
-                        currentUser?.selectedStoreName ??
-                        currentUser?.selectedStoreId ??
-                        '',
+                    initialValue: storeName ?? 'Your Store',
                     decoration: InputDecoration(labelText: l10n.taskStoreLabel),
                     enabled: false,
                   ),
                 ),
                 const SizedBox(height: RadhaSpacing.space16),
 
-                // Assignee (text input for now)
+                // Assignee — real staff picker, not free text. The backend
+                // requires at least one real user id (assigneeIds), and
+                // there's no such thing as an unassigned task at creation.
                 _StaggerIn(
                   index: 7,
                   reduceMotion: reduceMotion,
-                  child: TextFormField(
-                    controller: _assigneeController,
-                    decoration: InputDecoration(
-                      labelText: l10n.taskAssigneeLabel,
-                      hintText: l10n.taskAssigneeHint,
-                    ),
-                    textInputAction: TextInputAction.next,
-                  ),
+                  child: staffAsync == null
+                      ? const SizedBox.shrink()
+                      : staffAsync.when(
+                          loading: () => const LinearProgressIndicator(),
+                          error: (_, _) => Text(
+                            'Could not load your team. Pull to refresh and try again.',
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: scheme.error),
+                          ),
+                          data: (staff) {
+                            if (staff.isEmpty) {
+                              return Text(
+                                'No team members yet — invite someone from '
+                                'Profile > Staff & roles before assigning tasks.',
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(color: scheme.onSurfaceVariant),
+                              );
+                            }
+                            return DropdownButtonFormField<String>(
+                              initialValue: _assigneeId,
+                              decoration: InputDecoration(
+                                labelText: l10n.taskAssigneeLabel,
+                                hintText: l10n.taskAssigneeHint,
+                              ),
+                              items: [
+                                for (final member in staff)
+                                  DropdownMenuItem(
+                                    value: member.userId,
+                                    child: Text(_staffDisplayLabel(member)),
+                                  ),
+                              ],
+                              onChanged: (v) {
+                                HapticFeedback.selectionClick();
+                                setState(() => _assigneeId = v);
+                              },
+                              validator: (v) =>
+                                  v == null ? 'Choose who this is assigned to' : null,
+                            );
+                          },
+                        ),
                 ),
                 const SizedBox(height: RadhaSpacing.space16),
 
