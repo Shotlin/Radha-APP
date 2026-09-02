@@ -1214,21 +1214,15 @@ class _BottomBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: const [0.0, 0.18, 0.40, 0.65, 1.0],
-          colors: [
-            Colors.transparent,
-            Colors.transparent,
-            _kWarm.withValues(alpha: 0.55),
-            _kWarm.withValues(alpha: 0.92),
-            _kWarm,
-          ],
-        ),
-      ),
+    // Was its own transparent->solid gradient layered on top of the page's
+    // own bottom scrim (which already reaches fully-solid `_kWarm` well
+    // above this widget's small footprint) -- the two gradients transition
+    // at different rates over different heights, so the seam between them
+    // showed up as a visible grey band across the full width right above
+    // the Continue button (founder feedback: reads as an ugly shadow). A
+    // flat colour underneath an already-opaque background is seamless.
+    return ColoredBox(
+      color: _kWarm,
       child: SafeArea(
         top: false,
         child: Padding(
@@ -1262,7 +1256,11 @@ class _PageDots extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // White-based, not `theme.colorScheme.outline` — that colour is tuned
+    // for the app's normal light surfaces, and rendered a muddy grey smudge
+    // against this screen's warm-orange background (founder feedback: read
+    // as an ugly shadow bar above the Continue button). White matches the
+    // RADHA wordmark/body text already used on this same hero background.
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: List<Widget>.generate(pageCount, (i) {
@@ -1275,8 +1273,8 @@ class _PageDots extends StatelessWidget {
           width: isActive ? 22 : 7,
           decoration: BoxDecoration(
             color: isActive
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outline.withValues(alpha: 0.5),
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
           ),
         );
