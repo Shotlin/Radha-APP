@@ -86,9 +86,10 @@ class BizScreenHero extends StatelessWidget {
               ],
             ),
           ),
-          // Premium "sheet rising over the photo" lip — same colour as the
-          // screen body, rounded top corners, shadow cast upward onto the
-          // image. Purely decorative: the real content below starts flush.
+          // "Sheet rising over the photo" lip — same colour as the screen
+          // body, rounded top corners, no shadow (founder feedback: the
+          // upward-cast drop shadow read as a smudge, not a premium
+          // effect). Purely decorative: the real content below starts flush.
           Positioned(
             left: 0,
             right: 0,
@@ -101,13 +102,6 @@ class BizScreenHero extends StatelessWidget {
                   topLeft: Radius.circular(RadhaRadii.radiusXl),
                   topRight: Radius.circular(RadhaRadii.radiusXl),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.16),
-                    blurRadius: 16,
-                    offset: const Offset(0, -4),
-                  ),
-                ],
               ),
             ),
           ),
