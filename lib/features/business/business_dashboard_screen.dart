@@ -161,7 +161,6 @@ class BusinessDashboardScreen extends ConsumerWidget {
             const SizedBox(height: RadhaSpacing.space16),
             _KpiGrid(
               nearExpiry: data.nearExpiryCount,
-              lowStock: data.lowStockCount,
               openTasks: data.recentTasks.length,
               weekTasksDone: data.dashboard.totals.tasksCompleted,
             ),
@@ -761,66 +760,46 @@ class _MiniBarChart extends StatelessWidget {
 class _KpiGrid extends StatelessWidget {
   const _KpiGrid({
     required this.nearExpiry,
-    required this.lowStock,
     required this.openTasks,
     required this.weekTasksDone,
   });
 
   final int nearExpiry;
-  final int lowStock;
   final int openTasks;
   final int weekTasksDone;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _KpiTile(
-                value: nearExpiry,
-                label: 'Near Expiry',
-                icon: Icons.schedule_outlined,
-                color: RadhaColors.warning,
-                onTap: () => context.push(AppRoute.expiry),
-              ),
-            ),
-            const SizedBox(width: RadhaSpacing.space12),
-            Expanded(
-              child: _KpiTile(
-                value: lowStock,
-                label: 'Low Stock',
-                icon: Icons.inventory_2_outlined,
-                color: RadhaColors.complement,
-                onTap: () => context.push(AppRoute.inventory),
-              ),
-            ),
-          ],
+        Expanded(
+          child: _KpiTile(
+            value: nearExpiry,
+            label: 'Near Expiry',
+            icon: Icons.schedule_outlined,
+            color: RadhaColors.warning,
+            onTap: () => context.push(AppRoute.expiry),
+          ),
         ),
-        const SizedBox(height: RadhaSpacing.space12),
-        Row(
-          children: [
-            Expanded(
-              child: _KpiTile(
-                value: openTasks,
-                label: 'Open Tasks',
-                icon: Icons.checklist_outlined,
-                color: RadhaColors.primary,
-                onTap: () => context.push(AppRoute.tasks),
-              ),
-            ),
-            const SizedBox(width: RadhaSpacing.space12),
-            Expanded(
-              child: _KpiTile(
-                value: weekTasksDone,
-                label: 'Done This Week',
-                icon: Icons.check_circle_outline,
-                color: RadhaColors.success,
-                onTap: () => context.push(AppRoute.tasks),
-              ),
-            ),
-          ],
+        const SizedBox(width: RadhaSpacing.space12),
+        Expanded(
+          child: _KpiTile(
+            value: openTasks,
+            label: 'Open Tasks',
+            icon: Icons.checklist_outlined,
+            color: RadhaColors.primary,
+            onTap: () => context.push(AppRoute.tasks),
+          ),
+        ),
+        const SizedBox(width: RadhaSpacing.space12),
+        Expanded(
+          child: _KpiTile(
+            value: weekTasksDone,
+            label: 'Done This Week',
+            icon: Icons.check_circle_outline,
+            color: RadhaColors.success,
+            onTap: () => context.push(AppRoute.tasks),
+          ),
         ),
       ],
     );
@@ -889,8 +868,6 @@ class _QuickActionsGrid extends StatelessWidget {
           onTap: () => context.push(AppRoute.taskCreate)),
       _QAData(icon: Icons.local_shipping_outlined, label: 'GRN',
           onTap: () => context.push(AppRoute.grnCreate)),
-      _QAData(icon: Icons.inventory_2_outlined, label: 'Inventory',
-          onTap: () => context.push(AppRoute.inventory)),
       _QAData(icon: Icons.bar_chart_outlined, label: 'Reports',
           onTap: () => context.push(AppRoute.reports)),
       _QAData(icon: Icons.group_outlined, label: 'Staff & Team',
