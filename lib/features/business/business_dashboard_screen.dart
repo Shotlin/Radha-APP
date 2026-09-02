@@ -268,6 +268,43 @@ class _OhsHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final snapshot = OhsSnapshot.fromDashboard(dashboard);
+
+    if (!snapshot.hasActivity) {
+      return _PressableCard(
+        onTap: () => context.push(AppRoute.ohsDashboard),
+        padding: const EdgeInsets.all(RadhaSpacing.space16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'OPERATIONAL HEALTH',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: RadhaColors.primary,
+                letterSpacing: 0.6,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: RadhaSpacing.space8),
+            Row(
+              children: [
+                Icon(Icons.insights_outlined, color: theme.colorScheme.onSurfaceVariant, size: 20),
+                const SizedBox(width: RadhaSpacing.space8),
+                Expanded(
+                  child: Text(
+                    'Not enough activity yet — scan, audit, and complete a task '
+                    'to see your Operational Health here.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     final score = snapshot.ohsScore;
     final color = _ohsColor(score);
 

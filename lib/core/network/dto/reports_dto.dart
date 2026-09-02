@@ -719,6 +719,7 @@ class OhsTrendBar {
 class OhsSnapshot {
   const OhsSnapshot({
     required this.ohsScore,
+    required this.hasActivity,
     required this.breakdown,
     required this.scansThisWeek,
     required this.expiryAlertsActive,
@@ -727,8 +728,22 @@ class OhsSnapshot {
     required this.trend,
   });
 
-  /// 0..100. Weighted blend of the three dimension scores.
+  /// 0..100. Weighted blend of the three dimension scores. Still computed
+  /// even when [hasActivity] is false (see below) — callers that only
+  /// want a real, non-misleading headline number should gate display on
+  /// [hasActivity] rather than assuming a non-zero score means something.
   final int ohsScore;
+
+  /// False when the store has zero scans, zero expiry records, and zero
+  /// tasks — i.e. there's no real signal behind [ohsScore] yet. Two of
+  /// the three sub-scores (compliance, inventoryHygiene) default to a
+  /// generous 100 with no data ("nothing was missed") while the third
+  /// (auditCompletion) has no such default and falls to 0, so a
+  /// brand-new store's blended score lands on a suspicious-looking ~67
+  /// that reads as fake/demo data rather than "no data yet". Callers
+  /// should show an empty state instead of the numeric score when this
+  /// is false.
+  final bool hasActivity;
   final List<OhsBreakdown> breakdown;
   final int scansThisWeek;
   final int expiryAlertsActive;
@@ -787,6 +802,12 @@ class OhsSnapshot {
     final headline =
         ((compliance + inventoryHygiene + auditCompletion) / 3).round();
 
+    // ── Does this store have ANY real signal yet? See hasActivity's doc
+    //    comment — without this, a genuinely brand-new store blends two
+    //    optimistic zero-data defaults (100) against one that has none
+    //    (0), producing a headline number that looks fabricated.
+    final hasActivity = taskTotal > 0 || expiryTotal > 0 || src.totals.scans > 0;
+
     // ── Last 7 days of trend data.
     final last7 = src.trends.length <= 7
         ? src.trends
@@ -832,6 +853,7 @@ class OhsSnapshot {
 
     return OhsSnapshot(
       ohsScore: headline.clamp(0, 100),
+      hasActivity: hasActivity,
       breakdown: <OhsBreakdown>[
         OhsBreakdown(
           category: 'compliance',

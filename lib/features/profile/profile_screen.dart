@@ -631,7 +631,12 @@ class _BizStoreCard extends ConsumerWidget {
     final scheme = theme.colorScheme;
     final storeId = user?.selectedStoreId;
     final ohsAsync = ref.watch(homeOhsProvider);
-    final ohsScore = ohsAsync.valueOrNull?.ohsScore;
+    final ohsSnapshot = ohsAsync.valueOrNull;
+    // Only show a real score once the store has actual activity behind
+    // it — see OhsSnapshot.hasActivity's doc comment for why a
+    // brand-new store's blended score otherwise looks fabricated.
+    final ohsScore =
+        (ohsSnapshot?.hasActivity ?? false) ? ohsSnapshot!.ohsScore : null;
     final storeDetails = storeId == null
         ? null
         : ref.watch(storeDetailsProvider(storeId)).valueOrNull;

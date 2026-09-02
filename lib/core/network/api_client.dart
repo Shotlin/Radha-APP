@@ -28,6 +28,7 @@ import 'package:radha_app/core/network/dto/product_submission_dto.dart';
 import 'package:radha_app/core/network/dto/reports_dto.dart';
 import 'package:radha_app/core/network/dto/saved_product_dto.dart';
 import 'package:radha_app/core/network/dto/scan_dto.dart';
+import 'package:radha_app/core/network/dto/staff_dto.dart';
 import 'package:radha_app/core/network/dto/store_dto.dart';
 import 'package:radha_app/core/network/dto/subscription_dto.dart';
 import 'package:radha_app/core/network/dto/task_dto.dart';
@@ -35,6 +36,7 @@ import 'package:radha_app/core/network/dto/task_dto.dart';
 // Re-export auth DTOs so existing imports from this file keep working.
 export 'package:radha_app/core/network/dto/auth_dto.dart';
 export 'package:radha_app/core/network/dto/notification_dto.dart';
+export 'package:radha_app/core/network/dto/staff_dto.dart';
 export 'package:radha_app/core/network/dto/store_dto.dart';
 
 part 'api_client.g.dart';
@@ -325,8 +327,25 @@ abstract class ApiClient {
     @Body() UpdateStoreDto body,
   );
 
-  /// `POST /api/v1/stores/{storeId}/access` — invite a user to the store.
-  /// Body: { mobile: string, role: 'manager' | 'staff' | 'auditor' }
+  /// `GET /api/v1/stores/{storeId}/access/lookup-user?email=` — the
+  /// invite sheet's live "does this email match an existing user"
+  /// checkmark. Owner/manager/admin only.
+  @GET('/api/v1/stores/{storeId}/access/lookup-user')
+  Future<UserLookupResponse> lookupStoreUserByEmail(
+    @Path('storeId') String storeId,
+    @Query('email') String email,
+  );
+
+  /// `GET /api/v1/stores/{storeId}/access` — the store's current team.
+  /// Owner/manager/admin only.
+  @GET('/api/v1/stores/{storeId}/access')
+  Future<List<StaffMemberResponse>> getStoreStaff(
+    @Path('storeId') String storeId,
+  );
+
+  /// `POST /api/v1/stores/{storeId}/access` — invite a user to the
+  /// store. `userId` comes from [lookupStoreUserByEmail]; `role` is one
+  /// of `manager` | `staff` | `auditor`.
   @POST('/api/v1/stores/{storeId}/access')
   Future<void> grantStoreAccess(
     @Path('storeId') String storeId,
