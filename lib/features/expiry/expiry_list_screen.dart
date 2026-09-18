@@ -200,17 +200,26 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    final auth = ref.watch(authControllerProvider);
-    final session = auth.valueOrNull;
-    final selectedStoreId = session?.selectedStoreId;
-    final hasSelectableStores = session?.stores.isNotEmpty ?? false;
-    final isConsumerMode =
-        !(session?.roles.any(kBusinessRoles.contains) ?? false);
+    // Narrowed via .select(): this screen only cares about these four
+    // derived values, not the whole session object — an unrelated session
+    // field changing (name, mobile, etc.) no longer rebuilds this screen.
+    final (authLoading, selectedStoreId, hasSelectableStores, isConsumerMode) =
+        ref.watch(
+          authControllerProvider.select((auth) {
+            final session = auth.valueOrNull;
+            return (
+              auth.isLoading,
+              session?.selectedStoreId,
+              session?.stores.isNotEmpty ?? false,
+              !(session?.roles.any(kBusinessRoles.contains) ?? false),
+            );
+          }),
+        );
 
     // Whole-page scroll: hero banner, stats, and 7-day risk strip scroll
     // away together with the list underneath (one continuous sheet) —
     // only the segmented tab bar stays pinned once it reaches the top.
-    final body = auth.isLoading
+    final body = authLoading
         ? const _ExpiryListSkeleton()
         : selectedStoreId == null
         ? _ExpiryNeedsStore(

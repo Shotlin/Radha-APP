@@ -48,7 +48,13 @@ class ProfileScreen extends ConsumerWidget {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
     final user = ref.watch(currentUserProvider);
-    final session = ref.watch(authControllerProvider).valueOrNull;
+    // Narrowed: this screen only reads these two session fields, so an
+    // unrelated session change (e.g. selectedStoreId) won't rebuild it.
+    final (storeCount, tenantId) = ref.watch(
+      authControllerProvider.select(
+        (auth) => (auth.valueOrNull?.stores.length ?? 1, auth.valueOrNull?.tenantId),
+      ),
+    );
     final packageInfoAsync = ref.watch(_packageInfoProvider);
     final mode = ref.watch(appModeProvider);
     final isBusiness = mode == AppMode.business;
@@ -87,13 +93,13 @@ class ProfileScreen extends ConsumerWidget {
                 const _BizProfileHero(),
                 _BizStoreCard(
                   user: user,
-                  storeCount: session?.stores.length ?? 1,
+                  storeCount: storeCount,
                 ),
                 const SizedBox(height: RadhaSpacing.space16),
                 ..._businessSections(context, user, l10n),
               ] else ...[
                 const SizedBox(height: RadhaSpacing.space8),
-                _IdentityCard(user: user, tenantId: session?.tenantId),
+                _IdentityCard(user: user, tenantId: tenantId),
                 const SizedBox(height: RadhaSpacing.space24),
                 ..._consumerSections(context, user, l10n),
               ],

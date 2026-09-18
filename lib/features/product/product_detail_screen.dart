@@ -238,6 +238,10 @@ class _ProductHeader extends StatelessWidget {
                 ? Image.network(
                     product.imageUrl!,
                     fit: BoxFit.cover,
+                    cacheWidth: (80 * MediaQuery.devicePixelRatioOf(context))
+                        .round(),
+                    cacheHeight: (80 * MediaQuery.devicePixelRatioOf(context))
+                        .round(),
                     errorBuilder: (_, _, _) => const _PlaceholderIcon(),
                   )
                 : const _PlaceholderIcon(),

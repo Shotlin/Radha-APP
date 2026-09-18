@@ -89,18 +89,23 @@ class _MorCompanionState extends State<MorCompanion>
     if (!widget.animate || _reduceMotion) {
       body = image;
     } else {
-      body = AnimatedBuilder(
-        animation: _controller,
-        builder: (context, child) {
-          // Gentle breathing: a small scale + vertical bob. Transform-only —
-          // never animates layout, so it stays cheap and jank-free.
-          final t = Curves.easeInOut.transform(_controller.value);
-          return Transform.translate(
-            offset: Offset(0, -2.0 * t),
-            child: Transform.scale(scale: 1.0 + 0.035 * t, child: child),
-          );
-        },
-        child: image,
+      // RepaintBoundary isolates this per-frame breathing animation into its
+      // own layer, so it never forces whatever's next to it on screen to
+      // repaint too.
+      body = RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _controller,
+          builder: (context, child) {
+            // Gentle breathing: a small scale + vertical bob. Transform-only —
+            // never animates layout, so it stays cheap and jank-free.
+            final t = Curves.easeInOut.transform(_controller.value);
+            return Transform.translate(
+              offset: Offset(0, -2.0 * t),
+              child: Transform.scale(scale: 1.0 + 0.035 * t, child: child),
+            );
+          },
+          child: image,
+        ),
       );
     }
 

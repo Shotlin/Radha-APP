@@ -360,6 +360,14 @@ class _ProductThumb extends StatelessWidget {
               fit: BoxFit.cover,
               width: 72,
               height: 72,
+              memCacheWidth: (72 * MediaQuery.devicePixelRatioOf(context))
+                  .round(),
+              memCacheHeight: (72 * MediaQuery.devicePixelRatioOf(context))
+                  .round(),
+              maxWidthDiskCache: (72 * MediaQuery.devicePixelRatioOf(context))
+                  .round(),
+              maxHeightDiskCache: (72 * MediaQuery.devicePixelRatioOf(context))
+                  .round(),
               errorWidget: (_, _, _) => placeholder,
               placeholder: (_, _) => placeholder,
             ),

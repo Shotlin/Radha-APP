@@ -1640,7 +1640,14 @@ class _PhotoThumbnail extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
-          child: Image.file(photo, width: 56, height: 56, fit: BoxFit.cover),
+          child: Image.file(
+            photo,
+            width: 56,
+            height: 56,
+            fit: BoxFit.cover,
+            cacheWidth: (56 * MediaQuery.devicePixelRatioOf(context)).round(),
+            cacheHeight: (56 * MediaQuery.devicePixelRatioOf(context)).round(),
+          ),
         ),
         const SizedBox(width: RadhaSpacing.space12),
         Expanded(

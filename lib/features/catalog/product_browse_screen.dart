@@ -39,6 +39,28 @@ class _ProductBrowseScreenState extends ConsumerState<ProductBrowseScreen> {
   CatalogSort _sort = CatalogSort.health;
   bool _vegOnly = false;
 
+  // Memoizes state.products + the veg-only filter. state.products itself
+  // does real merge/de-dupe work on every access (see CategoryBrowseState),
+  // so without this it re-runs on every rebuild of this screen — including
+  // ones caused by something unrelated, like toggling sort order.
+  CategoryBrowseState? _itemsCacheState;
+  bool? _itemsCacheVegOnly;
+  List<BrowseProduct>? _itemsCacheResult;
+
+  List<BrowseProduct> _itemsFor(CategoryBrowseState state) {
+    if (identical(state, _itemsCacheState) && _vegOnly == _itemsCacheVegOnly) {
+      return _itemsCacheResult!;
+    }
+    final all = state.products;
+    final result = _vegOnly
+        ? all.where((p) => p.isVeg != false).toList(growable: false)
+        : all;
+    _itemsCacheState = state;
+    _itemsCacheVegOnly = _vegOnly;
+    _itemsCacheResult = result;
+    return result;
+  }
+
   RadhaCategory get _category => kRadhaCategories.firstWhere(
     (c) => c.id == widget.categoryId,
     orElse: () => RadhaCategory(
@@ -121,10 +143,7 @@ class _ProductBrowseScreenState extends ConsumerState<ProductBrowseScreen> {
                 ),
               ),
               data: (state) {
-                final all = state.products;
-                final items = _vegOnly
-                    ? all.where((p) => p.isVeg != false).toList(growable: false)
-                    : all;
+                final items = _itemsFor(state);
                 if (items.isEmpty) {
                   return _EmptyBody(
                     category: category,
@@ -516,6 +535,7 @@ class _ProductImage extends StatelessWidget {
         imageUrl: url,
         fit: BoxFit.contain,
         memCacheWidth: cacheWidth,
+        maxWidthDiskCache: cacheWidth,
         placeholder: (_, _) => const SkeletonLoader(
           width: double.infinity,
           height: double.infinity,

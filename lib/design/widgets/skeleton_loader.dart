@@ -54,27 +54,33 @@ class _SkeletonLoaderState extends State<SkeletonLoader>
       base,
     );
 
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final t = _controller.value;
-        return Container(
-          width: widget.width,
-          height: widget.height,
-          decoration: BoxDecoration(
-            shape: widget.shape,
-            borderRadius: widget.shape == BoxShape.rectangle
-                ? BorderRadius.circular(widget.radius)
-                : null,
-            gradient: LinearGradient(
-              begin: Alignment(-1 + 2 * t, 0),
-              end: Alignment(1 + 2 * t, 0),
-              colors: [base, highlight, base],
-              stops: const [0.0, 0.5, 1.0],
+    // Isolates this widget's own per-frame gradient repaint into its own
+    // layer — without this, every SkeletonLoader on screen (dashboards show
+    // several at once) forces its siblings to repaint on the same frame,
+    // even when only the shimmer sweep itself actually changed.
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          final t = _controller.value;
+          return Container(
+            width: widget.width,
+            height: widget.height,
+            decoration: BoxDecoration(
+              shape: widget.shape,
+              borderRadius: widget.shape == BoxShape.rectangle
+                  ? BorderRadius.circular(widget.radius)
+                  : null,
+              gradient: LinearGradient(
+                begin: Alignment(-1 + 2 * t, 0),
+                end: Alignment(1 + 2 * t, 0),
+                colors: [base, highlight, base],
+                stops: const [0.0, 0.5, 1.0],
+              ),
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

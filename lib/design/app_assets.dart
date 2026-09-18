@@ -24,16 +24,17 @@ class RadhaAssets {
 
   static const String _v2 = 'assets/v2';
 
-  // --- Mor — static mood frames (nine states) ----------------------------
-  static const String morIdle = '$_v2/character/mor/static/idle.png';
-  static const String morGreet = '$_v2/character/mor/static/greet.png';
-  static const String morThink = '$_v2/character/mor/static/think.png';
-  static const String morWork = '$_v2/character/mor/static/work.png';
-  static const String morCelebrate = '$_v2/character/mor/static/celebrate.png';
-  static const String morShelter = '$_v2/character/mor/static/shelter.png';
-  static const String morConcern = '$_v2/character/mor/static/concern.png';
-  static const String morGuard = '$_v2/character/mor/static/guard.png';
-  static const String morSleep = '$_v2/character/mor/static/sleep.png';
+  // --- Mor — static mood frames (nine states; WebP, see pubspec.yaml note)
+  static const String morIdle = '$_v2/character/mor/static/idle.webp';
+  static const String morGreet = '$_v2/character/mor/static/greet.webp';
+  static const String morThink = '$_v2/character/mor/static/think.webp';
+  static const String morWork = '$_v2/character/mor/static/work.webp';
+  static const String morCelebrate =
+      '$_v2/character/mor/static/celebrate.webp';
+  static const String morShelter = '$_v2/character/mor/static/shelter.webp';
+  static const String morConcern = '$_v2/character/mor/static/concern.webp';
+  static const String morGuard = '$_v2/character/mor/static/guard.webp';
+  static const String morSleep = '$_v2/character/mor/static/sleep.webp';
 
   /// Resolve a [MorMood] to its static frame path.
   static String morMoodFrame(MorMood mood) => switch (mood) {
@@ -65,9 +66,9 @@ class RadhaAssets {
   static const String stateErrorRetry = '$_v2/states/error-retry.webp';
   static const String stateOffline = '$_v2/states/offline.webp';
 
-  // --- Home illustrations -------------------------------------------------
+  // --- Home illustrations (WebP) ------------------------------------------
   static const String illoHomeStorefront =
-      '$_v2/illustration/home-storefront.png';
+      '$_v2/illustration/home-storefront.webp';
 
   // --- Home promo banners (editorial photos with bottom gradient scrim) ---
   static const String bannerHomeMission =
@@ -80,16 +81,16 @@ class RadhaAssets {
   static const String bannerExpiryMission = '$_v2/banners/expiry-mission.webp';
   static const String bannerFestive = '$_v2/banners/festive-store-pride.webp';
 
-  // --- Category cutouts (v3 — shop-by-category rail) ---------------------
-  static const String catBiscuits = '$_v2/illustrations/cat-biscuits.png';
-  static const String catBreakfast = '$_v2/illustrations/cat-breakfast.png';
-  static const String catDairy = '$_v2/illustrations/cat-dairy.png';
-  static const String catBeverages = '$_v2/illustrations/cat-beverages.png';
+  // --- Category cutouts (v3 — shop-by-category rail; WebP) ----------------
+  static const String catBiscuits = '$_v2/illustrations/cat-biscuits.webp';
+  static const String catBreakfast = '$_v2/illustrations/cat-breakfast.webp';
+  static const String catDairy = '$_v2/illustrations/cat-dairy.webp';
+  static const String catBeverages = '$_v2/illustrations/cat-beverages.webp';
   static const String catPersonalCare =
-      '$_v2/illustrations/cat-personal-care.png';
-  static const String catHousehold = '$_v2/illustrations/cat-household.png';
-  static const String catStaples = '$_v2/illustrations/cat-staples.png';
-  static const String catFrozen = '$_v2/illustrations/cat-frozen.png';
+      '$_v2/illustrations/cat-personal-care.webp';
+  static const String catHousehold = '$_v2/illustrations/cat-household.webp';
+  static const String catStaples = '$_v2/illustrations/cat-staples.webp';
+  static const String catFrozen = '$_v2/illustrations/cat-frozen.webp';
 
   // --- Health-flag badges (scan result / ingredient deep-dive — WebP) ----
   static const String hiSugarHigh = '$_v2/icons/health/sugar-high.webp';
@@ -103,19 +104,20 @@ class RadhaAssets {
   static const String hiUltraProcessed =
       '$_v2/icons/health/ultra-processed.webp';
 
-  // --- Onboarding hero illustrations -------------------------------------
+  // --- Onboarding hero illustrations (WebP) -------------------------------
   static const String heroOnboardingWelcome =
-      '$_v2/illustrations/hero_onboarding_welcome.png';
+      '$_v2/illustrations/hero_onboarding_welcome.webp';
   static const String heroOnboardingCapabilities =
-      '$_v2/illustrations/hero_onboarding_capabilities.png';
+      '$_v2/illustrations/hero_onboarding_capabilities.webp';
 
-  // --- Segment selection card backgrounds (onboarding page 3) ------------
-  static const String segPersonal = '$_v2/illustrations/seg_personal.png';
-  static const String segBusiness = '$_v2/illustrations/seg_business.png';
+  // --- Segment selection card backgrounds (onboarding page 3; WebP) ------
+  static const String segPersonal = '$_v2/illustrations/seg_personal.webp';
+  static const String segBusiness = '$_v2/illustrations/seg_business.webp';
 
-  // --- Auth hero illustrations -------------------------------------------
-  static const String heroSignin = '$_v2/illustrations/hero_signin.png';
-  static const String heroOtpVerify = '$_v2/illustrations/hero_otp_verify.png';
+  // --- Auth hero illustrations (WebP) -------------------------------------
+  static const String heroSignin = '$_v2/illustrations/hero_signin.webp';
+  static const String heroOtpVerify =
+      '$_v2/illustrations/hero_otp_verify.webp';
 
   // --- RADHA Plus paywall + brand splash ---------------------------------
   static const String paywallHero = '$_v2/plus/paywall-hero.webp';

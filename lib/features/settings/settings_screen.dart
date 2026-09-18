@@ -136,12 +136,7 @@ class SettingsScreen extends ConsumerWidget {
 
             // ─── Data & privacy ─────────────────────────────────────────
             SettingsSectionLabel(label: l10n.settingsDataPrivacy),
-            SettingsRow(
-              icon: Icons.no_food_outlined,
-              label: l10n.settingsAllergens,
-              subtitle: l10n.settingsAllergensHint,
-              onTap: () => context.push(AppRoute.allergens),
-            ),
+            // Allergen profile row hidden — not needed right now.
             _DestructiveActionRow(
               icon: Icons.devices_outlined,
               label: l10n.settingsSignOutAll,

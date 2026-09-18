@@ -386,6 +386,7 @@ class _ProductImage extends StatelessWidget {
         // Decode into the 80px box (≈2× for retina) instead of full-res —
         // keeps the alternatives list scroll buttery and memory low.
         memCacheWidth: 160,
+        maxWidthDiskCache: 160,
         placeholder: (_, _) => placeholder,
         errorWidget: (_, _, _) => placeholder,
       ),

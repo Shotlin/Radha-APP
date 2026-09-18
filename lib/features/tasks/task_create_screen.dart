@@ -68,7 +68,7 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
   String _type = 'other';
   String _priority = 'medium';
   DateTime? _dueDate;
-  bool _requiresEvidence = false;
+  final bool _requiresEvidence = false;
   bool _isSubmitting = false;
 
   /// Selected staff userId. Required — the backend has no concept of an
@@ -125,7 +125,10 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
             content: Text(AppLocalizations.of(context).taskCreatedSnack),
           ),
         );
-        context.pop();
+        // Tell the caller a task was actually created so it can refresh its
+        // list — previously popping with no result meant the tasks screen
+        // kept showing stale data until the whole app was restarted.
+        context.pop(true);
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -421,30 +424,10 @@ class _TaskCreateScreenState extends ConsumerState<TaskCreateScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: RadhaSpacing.space8),
-
-                // Evidence toggle
-                _StaggerIn(
-                  index: 9,
-                  reduceMotion: reduceMotion,
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.taskRequiresEvidence),
-                    subtitle: Text(
-                      l10n.taskRequiresEvidenceSubtitle,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    value: _requiresEvidence,
-                    activeThumbColor: scheme.primary,
-                    onChanged: (v) {
-                      HapticFeedback.selectionClick();
-                      setState(() => _requiresEvidence = v);
-                    },
-                  ),
-                ),
                 const SizedBox(height: RadhaSpacing.space32),
+                // Photo-evidence requirement is hidden for now (not part of
+                // this release) — _requiresEvidence stays false, so
+                // createTask still submits requiresPhoto: false as before.
 
                 // Submit
                 _StaggerIn(

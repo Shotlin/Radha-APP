@@ -434,10 +434,15 @@ class _Image extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Rendered inside a fixed 116x116 pack-shot box (see the caller above) —
+    // cap decode to that instead of the source image's native resolution.
+    final px = (116 * MediaQuery.devicePixelRatioOf(context)).round();
     if (assetImage != null && assetImage!.isNotEmpty) {
       return Image.asset(
         assetImage!,
         fit: BoxFit.contain,
+        cacheWidth: px,
+        cacheHeight: px,
         errorBuilder: (_, _, _) => const _ImgFallback(),
       );
     }
@@ -445,6 +450,10 @@ class _Image extends StatelessWidget {
       return CachedNetworkImage(
         imageUrl: networkImage!,
         fit: BoxFit.contain,
+        memCacheWidth: px,
+        memCacheHeight: px,
+        maxWidthDiskCache: px,
+        maxHeightDiskCache: px,
         errorWidget: (_, _, _) => const _ImgFallback(),
       );
     }

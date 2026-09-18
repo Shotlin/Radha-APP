@@ -19,6 +19,7 @@ import 'package:radha_app/design/tokens.dart';
 import 'package:radha_app/design/widgets/biz_screen_hero.dart';
 import 'package:radha_app/design/widgets/error_state.dart';
 import 'package:radha_app/design/widgets/skeleton_loader.dart';
+import 'package:radha_app/features/tasks/tasks_list_screen.dart';
 import 'package:radha_app/l10n/generated/app_localizations.dart';
 
 // ─── Data class ──────────────────────────────────────────────────────────────
@@ -44,6 +45,22 @@ class _BizDashData {
 }
 
 // ─── Provider ────────────────────────────────────────────────────────────────
+
+/// Pushes the task-create screen and, if a task was actually created,
+/// refreshes every provider whose data could now be stale — previously
+/// nothing here invalidated the Tasks screen's own providers, so a task
+/// created from a dashboard quick action silently didn't show up until the
+/// whole app was restarted.
+Future<void> _pushTaskCreate(BuildContext context) async {
+  final created = await context.push<bool>(AppRoute.taskCreate);
+  if (created == true && context.mounted) {
+    final container = ProviderScope.containerOf(context, listen: false);
+    container.invalidate(tasksListControllerProvider);
+    container.invalidate(taskStatsProvider);
+    container.invalidate(staffTasksProvider);
+    container.invalidate(_bizDashProvider);
+  }
+}
 
 /// Runs [call], returning [fallback] if it throws. Used so a single flaky
 /// sub-request can't blank the entire command center — only the core
@@ -390,7 +407,7 @@ class _OhsHeroCard extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Icon(Icons.verified_outlined, color: RadhaColors.success, size: 28),
+                    const Icon(Icons.verified_outlined, color: RadhaColors.success, size: 28),
                     const SizedBox(height: RadhaSpacing.space4),
                     Text(
                       'RADHA Verified',
@@ -865,9 +882,7 @@ class _QuickActionsGrid extends StatelessWidget {
       _QAData(icon: Icons.event_available_outlined, label: 'Add Expiry',
           onTap: () => context.push(AppRoute.expiryNew)),
       _QAData(icon: Icons.add_task_outlined, label: 'New Task',
-          onTap: () => context.push(AppRoute.taskCreate)),
-      _QAData(icon: Icons.local_shipping_outlined, label: 'GRN',
-          onTap: () => context.push(AppRoute.grnCreate)),
+          onTap: () => _pushTaskCreate(context)),
       _QAData(icon: Icons.bar_chart_outlined, label: 'Reports',
           onTap: () => context.push(AppRoute.reports)),
       _QAData(icon: Icons.group_outlined, label: 'Staff & Team',
@@ -995,7 +1010,7 @@ class _RecentTasksSection extends StatelessWidget {
         const SizedBox(height: RadhaSpacing.space8),
         if (tasks.isEmpty)
           _PressableCard(
-            onTap: () => context.push(AppRoute.taskCreate),
+            onTap: () => _pushTaskCreate(context),
             padding: const EdgeInsets.all(RadhaSpacing.space16),
             child: Row(
               children: [

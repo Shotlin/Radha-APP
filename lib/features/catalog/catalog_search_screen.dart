@@ -295,6 +295,7 @@ class _Thumb extends StatelessWidget {
         imageUrl: url,
         fit: BoxFit.contain,
         memCacheWidth: cacheWidth,
+        maxWidthDiskCache: cacheWidth,
         errorWidget: (_, _, _) => _fallback(theme),
       );
     } else {

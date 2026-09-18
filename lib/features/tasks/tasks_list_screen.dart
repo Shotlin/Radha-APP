@@ -102,12 +102,12 @@ class _TasksListController
   }
 }
 
-final _tasksListControllerProvider = AsyncNotifierProvider.autoDispose
+final tasksListControllerProvider = AsyncNotifierProvider.autoDispose
     .family<_TasksListController, _TasksListState, String?>(
       _TasksListController.new,
     );
 
-final _taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) async {
+final taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) async {
   final client = ref.read(apiClientProvider);
   final tasks = await client.getTasks(limit: 200);
   final now = DateTime.now();
@@ -131,7 +131,7 @@ final _taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) as
   return {'open': open, 'dueToday': dueToday, 'overdue': overdue};
 });
 
-final _staffTasksProvider = FutureProvider.autoDispose<List<TaskResponse>>((ref) async {
+final staffTasksProvider = FutureProvider.autoDispose<List<TaskResponse>>((ref) async {
   final client = ref.read(apiClientProvider);
   return client.getTasks(limit: 200);
 });
@@ -204,49 +204,63 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen>
               ),
             ),
           )
-        : Column(
-            children: [
-              BizScreenHero(
-                assetPath: RadhaAssets.heroTeamTasks,
-                headline: 'Keep every shift on track',
-                subtitle: 'Assign, manage and complete tasks',
-              ),
-              const _TaskStatsRow(),
-              const _TaskDateChip(),
-              _UnderlineTabs(
-                labels: tabs,
-                index: _index,
-                onChanged: (i) {
-                  HapticFeedback.selectionClick();
-                  _tabController.animateTo(i);
-                },
-              ),
-              if (_index != 1)
-                _PriorityChips(
-                  selected: _priorityFilter,
-                  onChanged: (value) {
-                    HapticFeedback.selectionClick();
-                    setState(() => _priorityFilter = value);
-                  },
+        // Whole-page scroll, matching the Expiry tracker screen: hero
+        // banner, stats, date chip, and priority chips scroll away together
+        // with the list underneath (one continuous sheet) — only the tab
+        // bar stays pinned once it reaches the top. Previously this was a
+        // fixed Column, so only the small Expanded area at the bottom
+        // scrolled and the hero image could never collapse out of the way.
+        : NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: BizScreenHero(
+                  assetPath: RadhaAssets.heroTeamTasks,
+                  headline: 'Keep every shift on track',
+                  subtitle: 'Assign, manage and complete tasks',
                 ),
-              Expanded(
-                child: TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _TaskList(
-                      status: 'pending',
-                      priorityFilter: _priorityFilter,
-                      userId: currentUser?.userId,
-                    ),
-                    const _StaffWorkloadView(),
-                    _TaskList(
-                      status: 'completed',
-                      priorityFilter: _priorityFilter,
-                    ),
-                  ],
+              ),
+              const SliverToBoxAdapter(child: _TaskStatsRow()),
+              const SliverToBoxAdapter(child: _TaskDateChip()),
+              if (_index != 1)
+                SliverToBoxAdapter(
+                  child: _PriorityChips(
+                    selected: _priorityFilter,
+                    onChanged: (value) {
+                      HapticFeedback.selectionClick();
+                      setState(() => _priorityFilter = value);
+                    },
+                  ),
+                ),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _TaskSliverHeaderDelegate(
+                  height: 64,
+                  child: _UnderlineTabs(
+                    labels: tabs,
+                    index: _index,
+                    onChanged: (i) {
+                      HapticFeedback.selectionClick();
+                      _tabController.animateTo(i);
+                    },
+                  ),
                 ),
               ),
             ],
+            body: TabBarView(
+              controller: _tabController,
+              children: [
+                _TaskList(
+                  status: 'pending',
+                  priorityFilter: _priorityFilter,
+                  userId: currentUser?.userId,
+                ),
+                const _StaffWorkloadView(),
+                _TaskList(
+                  status: 'completed',
+                  priorityFilter: _priorityFilter,
+                ),
+              ],
+            ),
           );
 
     return Scaffold(
@@ -266,9 +280,14 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen>
               heroTag: 'tasks_fab',
               backgroundColor: RadhaColors.primary,
               foregroundColor: RadhaColors.onPrimary,
-              onPressed: () {
+              onPressed: () async {
                 HapticFeedback.lightImpact();
-                context.push(AppRoute.taskCreate);
+                final created = await context.push<bool>(AppRoute.taskCreate);
+                if (created == true) {
+                  ref.invalidate(tasksListControllerProvider);
+                  ref.invalidate(taskStatsProvider);
+                  ref.invalidate(staffTasksProvider);
+                }
               },
               icon: const Icon(Icons.add_rounded),
               label: Text(l10n.tasksNewTask),
@@ -285,7 +304,7 @@ class _TaskStatsRow extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final statsAsync = ref.watch(_taskStatsProvider);
+    final statsAsync = ref.watch(taskStatsProvider);
     return statsAsync.when(
       loading: () => BizMetricRow(metrics: const [
         BizMetric(value: '—', label: 'Open', icon: Icons.task_outlined, color: RadhaColors.primary),
@@ -362,7 +381,7 @@ class _StaffWorkloadView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final tasksAsync = ref.watch(_staffTasksProvider);
+    final tasksAsync = ref.watch(staffTasksProvider);
     final storeId = ref.watch(currentUserProvider)?.selectedStoreId;
     final staff = storeId == null
         ? null
@@ -370,7 +389,7 @@ class _StaffWorkloadView extends ConsumerWidget {
 
     return tasksAsync.when(
       loading: () => const _TaskListSkeleton(),
-      error: (_, __) => _TaskError(onRetry: () => ref.invalidate(_staffTasksProvider)),
+      error: (_, __) => _TaskError(onRetry: () => ref.invalidate(staffTasksProvider)),
       data: (tasks) {
         final staffMap = <String, _StaffStats>{};
         for (final t in tasks) {
@@ -406,27 +425,40 @@ class _StaffWorkloadView extends ConsumerWidget {
 
         return RefreshIndicator(
           color: RadhaColors.primary,
-          onRefresh: () async => ref.invalidate(_staffTasksProvider),
-          child: ListView(
+          onRefresh: () async => ref.invalidate(staffTasksProvider),
+          child: ListView.builder(
+            key: const PageStorageKey<String>('staff_workload'),
             padding: const EdgeInsets.fromLTRB(
               RadhaSpacing.space16,
               RadhaSpacing.space16,
               RadhaSpacing.space16,
               RadhaSpacing.space32 + 72,
             ),
-            children: [
-              _ShiftCompletionBanner(tasks: tasks),
-              const SizedBox(height: RadhaSpacing.space16),
-              Text(
-                'Staff Workload',
-                style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: RadhaSpacing.space12),
-              ...staffList.map((s) => Padding(
+            // index 0 is the fixed header (banner + section title); staff
+            // rows are lazily built from index 1 on, instead of all at once.
+            itemCount: staffList.length + 1,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ShiftCompletionBanner(tasks: tasks),
+                    const SizedBox(height: RadhaSpacing.space16),
+                    Text(
+                      'Staff Workload',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: RadhaSpacing.space12),
+                  ],
+                );
+              }
+              return Padding(
                 padding: const EdgeInsets.only(bottom: RadhaSpacing.space12),
-                child: _StaffWorkloadRow(stats: s),
-              )),
-            ],
+                child: _StaffWorkloadRow(stats: staffList[index - 1]),
+              );
+            },
           ),
         );
       },
@@ -593,6 +625,42 @@ class _StaffWorkloadRow extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Pins [child] (the underline tab bar) to the top of the NestedScrollView
+/// once the hero/stats/chips slivers above it have scrolled away. Mirrors
+/// `_SliverTabBarDelegate` in expiry_list_screen.dart.
+class _TaskSliverHeaderDelegate extends SliverPersistentHeaderDelegate {
+  const _TaskSliverHeaderDelegate({required this.child, required this.height});
+
+  final Widget child;
+  final double height;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    // SizedBox forces the child to exactly fill the declared height —
+    // without it, a child shorter than `height` (this one renders ~55.5px
+    // vs the 64px claimed) leaves the sliver's paintExtent short of its
+    // layoutExtent, which Flutter treats as an invalid-geometry error.
+    return SizedBox(
+      height: height,
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surface,
+        child: child,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _TaskSliverHeaderDelegate oldDelegate) {
+    return child != oldDelegate.child || height != oldDelegate.height;
+  }
+}
+
 /// Underline-style filter tabs with an animated indicator.
 class _UnderlineTabs extends StatelessWidget {
   const _UnderlineTabs({
@@ -755,39 +823,30 @@ class _TaskList extends ConsumerStatefulWidget {
 }
 
 class _TaskListState extends ConsumerState<_TaskList> {
-  final _scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_onScroll);
-  }
-
-  @override
-  void dispose() {
-    _scrollController
-      ..removeListener(_onScroll)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    if (position.pixels >= position.maxScrollExtent - 200) {
-      ref.read(_tasksListControllerProvider(widget.status).notifier).loadMore();
+  // No explicit ScrollController: this list lives inside the screen's
+  // NestedScrollView (hero/stats/tabs collapse away as one continuous
+  // sheet), so it must use the ambient PrimaryScrollController that
+  // NestedScrollView wires up per tab rather than owning its own —
+  // otherwise the outer header would stop collapsing. Pagination instead
+  // watches bubbled ScrollNotifications, which report this list's own
+  // (post-collapse) metrics.
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.pixels >=
+        notification.metrics.maxScrollExtent - 200) {
+      ref.read(tasksListControllerProvider(widget.status).notifier).loadMore();
     }
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    final tasksAsync = ref.watch(_tasksListControllerProvider(widget.status));
+    final tasksAsync = ref.watch(tasksListControllerProvider(widget.status));
 
     return tasksAsync.when(
       loading: () => const _TaskListSkeleton(),
       error: (err, _) => _TaskError(
         onRetry: () => ref
-            .read(_tasksListControllerProvider(widget.status).notifier)
+            .read(tasksListControllerProvider(widget.status).notifier)
             .refresh(),
       ),
       data: (state) {
@@ -806,7 +865,7 @@ class _TaskListState extends ConsumerState<_TaskList> {
           return RefreshIndicator(
             color: RadhaColors.primary,
             onRefresh: () async => ref
-                .read(_tasksListControllerProvider(widget.status).notifier)
+                .read(tasksListControllerProvider(widget.status).notifier)
                 .refresh(),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(
@@ -835,38 +894,43 @@ class _TaskListState extends ConsumerState<_TaskList> {
             widget.priorityFilter == null &&
             widget.userId == null;
 
-        return RefreshIndicator(
-          color: RadhaColors.primary,
-          onRefresh: () async => ref
-              .read(_tasksListControllerProvider(widget.status).notifier)
-              .refresh(),
-          child: ListView.separated(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(
-              parent: BouncingScrollPhysics(),
-            ),
-            padding: const EdgeInsets.fromLTRB(
-              RadhaSpacing.space20,
-              RadhaSpacing.space12,
-              RadhaSpacing.space20,
-              RadhaSpacing.space32 + 72,
-            ),
-            itemCount: items.length + (showFooter ? 1 : 0),
-            separatorBuilder: (_, _) =>
-                const SizedBox(height: RadhaSpacing.space12),
-            itemBuilder: (context, index) {
-              if (index >= items.length) {
-                return const Padding(
-                  padding: EdgeInsets.all(RadhaSpacing.space16),
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      color: RadhaColors.primary,
+        return NotificationListener<ScrollNotification>(
+          onNotification: _handleScrollNotification,
+          child: RefreshIndicator(
+            color: RadhaColors.primary,
+            onRefresh: () async => ref
+                .read(tasksListControllerProvider(widget.status).notifier)
+                .refresh(),
+            child: ListView.separated(
+              // Distinguishes this tab's scroll position from the other
+              // tabs sharing the NestedScrollView's ambient scroll controller.
+              key: PageStorageKey<String?>(widget.status),
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(
+                RadhaSpacing.space20,
+                RadhaSpacing.space12,
+                RadhaSpacing.space20,
+                RadhaSpacing.space32 + 72,
+              ),
+              itemCount: items.length + (showFooter ? 1 : 0),
+              separatorBuilder: (_, _) =>
+                  const SizedBox(height: RadhaSpacing.space12),
+              itemBuilder: (context, index) {
+                if (index >= items.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(RadhaSpacing.space16),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: RadhaColors.primary,
+                      ),
                     ),
-                  ),
-                );
-              }
-              return _TaskTile(task: items[index]);
-            },
+                  );
+                }
+                return _TaskTile(task: items[index]);
+              },
+            ),
           ),
         );
       },

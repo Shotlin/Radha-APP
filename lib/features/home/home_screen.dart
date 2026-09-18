@@ -18,6 +18,7 @@ import 'package:radha_app/design/widgets/skeleton_loader.dart';
 import 'package:radha_app/l10n/generated/app_localizations.dart';
 import 'package:radha_app/features/catalog/catalog_search_screen.dart';
 import 'package:radha_app/features/catalog/featured_rail.dart';
+import 'package:radha_app/features/tasks/tasks_list_screen.dart';
 
 import '../business/business_dashboard_screen.dart';
 import 'data/home_catalog.dart';
@@ -794,12 +795,18 @@ class _QuickActionsSection extends StatelessWidget {
             _QuickActionData(
               icon: Icons.add_task_outlined,
               label: l10n.homeQuickNewTask,
-              onTap: () => context.push(AppRoute.taskCreate),
-            ),
-            _QuickActionData(
-              icon: Icons.move_to_inbox_outlined,
-              label: 'Stock in',
-              onTap: () => context.push(AppRoute.grnCreate),
+              onTap: () async {
+                final created = await context.push<bool>(AppRoute.taskCreate);
+                if (created == true && context.mounted) {
+                  final container = ProviderScope.containerOf(
+                    context,
+                    listen: false,
+                  );
+                  container.invalidate(tasksListControllerProvider);
+                  container.invalidate(taskStatsProvider);
+                  container.invalidate(staffTasksProvider);
+                }
+              },
             ),
           ];
 

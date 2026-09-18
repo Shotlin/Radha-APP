@@ -92,9 +92,17 @@ class _SelectStoreScreenState extends ConsumerState<SelectStoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final session = ref.watch(authControllerProvider).valueOrNull;
-    final stores = session?.stores ?? const <StoreAccess>[];
-    final selectedStoreId = session?.selectedStoreId;
+    // Narrowed: this screen only needs the store list + current selection,
+    // not the whole session (e.g. name/mobile changes elsewhere won't
+    // rebuild it).
+    final (stores, selectedStoreId) = ref.watch(
+      authControllerProvider.select(
+        (auth) => (
+          auth.valueOrNull?.stores ?? const <StoreAccess>[],
+          auth.valueOrNull?.selectedStoreId,
+        ),
+      ),
+    );
     final theme = Theme.of(context);
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;

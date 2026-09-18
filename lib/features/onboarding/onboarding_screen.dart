@@ -285,6 +285,18 @@ class _WelcomePageState extends State<_WelcomePage>
               RadhaAssets.heroOnboardingWelcome,
               fit: BoxFit.cover,
               alignment: Alignment.topCenter,
+              // Ken Burns zooms up to 1.07x — decode a bit past screen size
+              // so the zoomed frame never upsamples a soft/undersized bitmap.
+              cacheWidth:
+                  (MediaQuery.sizeOf(context).width *
+                          MediaQuery.devicePixelRatioOf(context) *
+                          1.1)
+                      .round(),
+              cacheHeight:
+                  (MediaQuery.sizeOf(context).height *
+                          MediaQuery.devicePixelRatioOf(context) *
+                          1.1)
+                      .round(),
               errorBuilder: (_, __, ___) => const ColoredBox(color: _kWarm),
             ),
           ),
@@ -467,6 +479,16 @@ class _CapabilitiesPageState extends State<_CapabilitiesPage>
               RadhaAssets.heroOnboardingCapabilities,
               fit: BoxFit.cover,
               alignment: Alignment.topCenter,
+              cacheWidth:
+                  (MediaQuery.sizeOf(context).width *
+                          MediaQuery.devicePixelRatioOf(context) *
+                          1.1)
+                      .round(),
+              cacheHeight:
+                  (MediaQuery.sizeOf(context).height *
+                          MediaQuery.devicePixelRatioOf(context) *
+                          1.1)
+                      .round(),
               errorBuilder: (_, __, ___) => const ColoredBox(color: _kWarm),
             ),
           ),
@@ -907,6 +929,16 @@ class _PersonalPanel extends StatelessWidget {
                 RadhaAssets.segPersonal,
                 fit: BoxFit.cover,
                 alignment: Alignment.topCenter,
+                cacheWidth:
+                    (MediaQuery.sizeOf(context).width *
+                            MediaQuery.devicePixelRatioOf(context) *
+                            1.1)
+                        .round(),
+                cacheHeight:
+                    (MediaQuery.sizeOf(context).height *
+                            MediaQuery.devicePixelRatioOf(context) *
+                            1.1)
+                        .round(),
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),
@@ -1035,6 +1067,18 @@ class _BusinessPanel extends StatelessWidget {
                 RadhaAssets.segBusiness,
                 fit: BoxFit.cover,
                 alignment: Alignment.topCenter,
+                // Base zoom here is 1.18 (see comment above), so this needs
+                // more decode headroom than the other Ken Burns hero images.
+                cacheWidth:
+                    (MediaQuery.sizeOf(context).width *
+                            MediaQuery.devicePixelRatioOf(context) *
+                            1.3)
+                        .round(),
+                cacheHeight:
+                    (MediaQuery.sizeOf(context).height *
+                            MediaQuery.devicePixelRatioOf(context) *
+                            1.3)
+                        .round(),
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             ),

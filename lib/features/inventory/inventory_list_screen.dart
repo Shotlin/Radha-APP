@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -152,6 +154,14 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
   String? _stockFilter;
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
+  Timer? _searchDebounce;
+
+  // Memoizes _filter() below so a rebuild that isn't caused by a query/filter
+  // change (e.g. a pagination append) doesn't re-scan the whole inventory.
+  List<InventoryItemResponse>? _filterCacheItems;
+  String? _filterCacheQuery;
+  String? _filterCacheStockFilter;
+  List<InventoryItemResponse>? _filterCacheResult;
 
   @override
   void initState() {
@@ -161,11 +171,39 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _scrollController
       ..removeListener(_onScroll)
       ..dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  /// Debounces search-as-you-type: the text field itself updates instantly
+  /// (it's driven by [_searchController], not [_searchQuery]), but the
+  /// expensive re-filter + list rebuild waits until typing pauses instead of
+  /// running on every single keystroke.
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _searchQuery = value);
+    });
+  }
+
+  List<InventoryItemResponse> _filterMemoized(
+    List<InventoryItemResponse> items,
+  ) {
+    if (identical(items, _filterCacheItems) &&
+        _searchQuery == _filterCacheQuery &&
+        _stockFilter == _filterCacheStockFilter) {
+      return _filterCacheResult!;
+    }
+    final result = _filter(items, _searchQuery, _stockFilter);
+    _filterCacheItems = items;
+    _filterCacheQuery = _searchQuery;
+    _filterCacheStockFilter = _stockFilter;
+    _filterCacheResult = result;
+    return result;
   }
 
   void _onScroll() {
@@ -189,8 +227,9 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
         title: _showSearch
             ? _SearchField(
                 controller: _searchController,
-                onChanged: (v) => setState(() => _searchQuery = v),
+                onChanged: _onSearchChanged,
                 onClose: () => setState(() {
+                  _searchDebounce?.cancel();
                   _showSearch = false;
                   _searchQuery = '';
                   _searchController.clear();
@@ -259,7 +298,7 @@ class _InventoryListScreenState extends ConsumerState<InventoryListScreen> {
                 ),
               ),
               data: (state) {
-                final items = _filter(state.items, _searchQuery, _stockFilter);
+                final items = _filterMemoized(state.items);
 
                 if (items.isEmpty) {
                   return Center(

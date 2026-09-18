@@ -187,6 +187,7 @@ class _Image extends StatelessWidget {
         imageUrl: url,
         fit: BoxFit.contain,
         memCacheWidth: cacheWidth,
+        maxWidthDiskCache: cacheWidth,
         placeholder: (_, _) => const SkeletonLoader(
           width: double.infinity,
           height: double.infinity,
