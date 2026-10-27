@@ -1,3 +1,4 @@
+import 'package:radha_app/features/home/product_discovery_section.dart';
 import 'dart:math';
 
 import 'package:fl_chart/fl_chart.dart';
@@ -183,6 +184,8 @@ class BusinessDashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: RadhaSpacing.space16),
             const _QuickActionsGrid(),
+            const SizedBox(height: RadhaSpacing.space24),
+            const ProductDiscoverySection(),
             const SizedBox(height: RadhaSpacing.space16),
             _RecentTasksSection(tasks: data.recentTasks),
             const SizedBox(height: RadhaSpacing.space32),

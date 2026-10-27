@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../core/auth/auth_controller.dart';
-import '../../core/mode/app_mode_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/dto/task_dto.dart';
 import '../../core/router/app_router.dart';
@@ -107,7 +106,9 @@ final tasksListControllerProvider = AsyncNotifierProvider.autoDispose
       _TasksListController.new,
     );
 
-final taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) async {
+final taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((
+  ref,
+) async {
   final client = ref.read(apiClientProvider);
   final tasks = await client.getTasks(limit: 200);
   final now = DateTime.now();
@@ -131,7 +132,9 @@ final taskStatsProvider = FutureProvider.autoDispose<Map<String, int>>((ref) asy
   return {'open': open, 'dueToday': dueToday, 'overdue': overdue};
 });
 
-final staffTasksProvider = FutureProvider.autoDispose<List<TaskResponse>>((ref) async {
+final staffTasksProvider = FutureProvider.autoDispose<List<TaskResponse>>((
+  ref,
+) async {
   final client = ref.read(apiClientProvider);
   return client.getTasks(limit: 200);
 });
@@ -183,85 +186,66 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen>
         currentUser?.roles.contains('owner') == true ||
         currentUser?.roles.contains('manager') == true ||
         currentUser?.roles.contains('admin') == true;
-    final isConsumerMode =
-        !(currentUser?.roles.any(kBusinessRoles.contains) ?? false);
     // 'Staff' (the middle tab) renders a per-staff workload breakdown, not a
     // flat "all tasks" list, so the l10n `tasksTabAll` label no longer fits.
     const tabs = ['Board', 'Staff', 'Completed'];
 
-    // Tasks is a retail-store feature (assignment, priority, completion by
-    // staff). A personal/consumer account has no store and no tasks to load —
-    // show the same honest gate as Expiry instead of a doomed API call that
-    // would otherwise surface as a confusing "Failed to load tasks" error.
-    final body = isConsumerMode
-        ? Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(RadhaSpacing.space16),
-              child: EmptyState(
-                illustration: const MorCompanion(mood: MorMood.guard, size: 104),
-                title: l10n.tasksConsumerTitle,
-                body: l10n.tasksConsumerBody,
-              ),
-            ),
-          )
+    final body =
         // Whole-page scroll, matching the Expiry tracker screen: hero
         // banner, stats, date chip, and priority chips scroll away together
         // with the list underneath (one continuous sheet) — only the tab
         // bar stays pinned once it reaches the top. Previously this was a
         // fixed Column, so only the small Expanded area at the bottom
         // scrolled and the hero image could never collapse out of the way.
-        : NestedScrollView(
-            headerSliverBuilder: (context, innerBoxIsScrolled) => [
-              SliverToBoxAdapter(
-                child: BizScreenHero(
-                  assetPath: RadhaAssets.heroTeamTasks,
-                  headline: 'Keep every shift on track',
-                  subtitle: 'Assign, manage and complete tasks',
-                ),
+        NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverToBoxAdapter(
+              child: BizScreenHero(
+                assetPath: RadhaAssets.heroTeamTasks,
+                headline: 'Keep every shift on track',
+                subtitle: 'Assign, manage and complete tasks',
               ),
-              const SliverToBoxAdapter(child: _TaskStatsRow()),
-              const SliverToBoxAdapter(child: _TaskDateChip()),
-              if (_index != 1)
-                SliverToBoxAdapter(
-                  child: _PriorityChips(
-                    selected: _priorityFilter,
-                    onChanged: (value) {
-                      HapticFeedback.selectionClick();
-                      setState(() => _priorityFilter = value);
-                    },
-                  ),
-                ),
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: _TaskSliverHeaderDelegate(
-                  height: 64,
-                  child: _UnderlineTabs(
-                    labels: tabs,
-                    index: _index,
-                    onChanged: (i) {
-                      HapticFeedback.selectionClick();
-                      _tabController.animateTo(i);
-                    },
-                  ),
-                ),
-              ),
-            ],
-            body: TabBarView(
-              controller: _tabController,
-              children: [
-                _TaskList(
-                  status: 'pending',
-                  priorityFilter: _priorityFilter,
-                  userId: currentUser?.userId,
-                ),
-                const _StaffWorkloadView(),
-                _TaskList(
-                  status: 'completed',
-                  priorityFilter: _priorityFilter,
-                ),
-              ],
             ),
-          );
+            const SliverToBoxAdapter(child: _TaskStatsRow()),
+            const SliverToBoxAdapter(child: _TaskDateChip()),
+            if (_index != 1)
+              SliverToBoxAdapter(
+                child: _PriorityChips(
+                  selected: _priorityFilter,
+                  onChanged: (value) {
+                    HapticFeedback.selectionClick();
+                    setState(() => _priorityFilter = value);
+                  },
+                ),
+              ),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _TaskSliverHeaderDelegate(
+                height: 64,
+                child: _UnderlineTabs(
+                  labels: tabs,
+                  index: _index,
+                  onChanged: (i) {
+                    HapticFeedback.selectionClick();
+                    _tabController.animateTo(i);
+                  },
+                ),
+              ),
+            ),
+          ],
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              _TaskList(
+                status: 'pending',
+                priorityFilter: _priorityFilter,
+                userId: currentUser?.userId,
+              ),
+              const _StaffWorkloadView(),
+              _TaskList(status: 'completed', priorityFilter: _priorityFilter),
+            ],
+          ),
+        );
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
@@ -275,7 +259,7 @@ class _TasksListScreenState extends ConsumerState<TasksListScreen>
         ),
       ),
       body: body,
-      floatingActionButton: (isManager && !isConsumerMode)
+      floatingActionButton: isManager
           ? FloatingActionButton.extended(
               heroTag: 'tasks_fab',
               backgroundColor: RadhaColors.primary,
@@ -306,21 +290,72 @@ class _TaskStatsRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(taskStatsProvider);
     return statsAsync.when(
-      loading: () => BizMetricRow(metrics: const [
-        BizMetric(value: '—', label: 'Open', icon: Icons.task_outlined, color: RadhaColors.primary),
-        BizMetric(value: '—', label: 'Due today', icon: Icons.today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '—', label: 'Overdue', icon: Icons.schedule_outlined, color: RadhaColors.danger),
-      ]),
-      error: (_, __) => BizMetricRow(metrics: const [
-        BizMetric(value: '—', label: 'Open', icon: Icons.task_outlined, color: RadhaColors.primary),
-        BizMetric(value: '—', label: 'Due today', icon: Icons.today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '—', label: 'Overdue', icon: Icons.schedule_outlined, color: RadhaColors.danger),
-      ]),
-      data: (stats) => BizMetricRow(metrics: [
-        BizMetric(value: '${stats['open'] ?? 0}', label: 'Open', icon: Icons.task_outlined, color: RadhaColors.primary),
-        BizMetric(value: '${stats['dueToday'] ?? 0}', label: 'Due today', icon: Icons.today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '${stats['overdue'] ?? 0}', label: 'Overdue', icon: Icons.schedule_outlined, color: RadhaColors.danger),
-      ]),
+      loading: () => BizMetricRow(
+        metrics: const [
+          BizMetric(
+            value: '—',
+            label: 'Open',
+            icon: Icons.task_outlined,
+            color: RadhaColors.primary,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'Due today',
+            icon: Icons.today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'Overdue',
+            icon: Icons.schedule_outlined,
+            color: RadhaColors.danger,
+          ),
+        ],
+      ),
+      error: (_, __) => BizMetricRow(
+        metrics: const [
+          BizMetric(
+            value: '—',
+            label: 'Open',
+            icon: Icons.task_outlined,
+            color: RadhaColors.primary,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'Due today',
+            icon: Icons.today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'Overdue',
+            icon: Icons.schedule_outlined,
+            color: RadhaColors.danger,
+          ),
+        ],
+      ),
+      data: (stats) => BizMetricRow(
+        metrics: [
+          BizMetric(
+            value: '${stats['open'] ?? 0}',
+            label: 'Open',
+            icon: Icons.task_outlined,
+            color: RadhaColors.primary,
+          ),
+          BizMetric(
+            value: '${stats['dueToday'] ?? 0}',
+            label: 'Due today',
+            icon: Icons.today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '${stats['overdue'] ?? 0}',
+            label: 'Overdue',
+            icon: Icons.schedule_outlined,
+            color: RadhaColors.danger,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -350,7 +385,9 @@ class _TaskDateChip extends StatelessWidget {
             decoration: BoxDecoration(
               color: RadhaColors.primary.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(RadhaRadii.radiusFull),
-              border: Border.all(color: RadhaColors.primary.withValues(alpha: 0.30)),
+              border: Border.all(
+                color: RadhaColors.primary.withValues(alpha: 0.30),
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -363,7 +400,11 @@ class _TaskDateChip extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: RadhaSpacing.space4),
-                const Icon(Icons.keyboard_arrow_down_rounded, size: 16, color: RadhaColors.primary),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  size: 16,
+                  color: RadhaColors.primary,
+                ),
               ],
             ),
           ),
@@ -389,7 +430,8 @@ class _StaffWorkloadView extends ConsumerWidget {
 
     return tasksAsync.when(
       loading: () => const _TaskListSkeleton(),
-      error: (_, __) => _TaskError(onRetry: () => ref.invalidate(staffTasksProvider)),
+      error: (_, __) =>
+          _TaskError(onRetry: () => ref.invalidate(staffTasksProvider)),
       data: (tasks) {
         final staffMap = <String, _StaffStats>{};
         for (final t in tasks) {
@@ -398,7 +440,10 @@ class _StaffWorkloadView extends ConsumerWidget {
           for (final id in ids) {
             final name = resolveTaskAssigneeLabel([id], staff);
             if (name == null) continue;
-            final entry = staffMap.putIfAbsent(id, () => _StaffStats(name: name));
+            final entry = staffMap.putIfAbsent(
+              id,
+              () => _StaffStats(name: name),
+            );
             entry.total++;
             if (t.status == 'completed') entry.completed++;
           }
@@ -413,7 +458,10 @@ class _StaffWorkloadView extends ConsumerWidget {
                 children: [
                   const MorCompanion(mood: MorMood.greet, size: 96),
                   const SizedBox(height: RadhaSpacing.space16),
-                  Text('No staff assigned yet', style: theme.textTheme.bodyMedium),
+                  Text(
+                    'No staff assigned yet',
+                    style: theme.textTheme.bodyMedium,
+                  ),
                 ],
               ),
             ),
@@ -520,7 +568,9 @@ class _ShiftCompletionBanner extends StatelessWidget {
             child: LinearProgressIndicator(
               value: total == 0 ? 0 : done / total,
               minHeight: 8,
-              backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.20),
+              backgroundColor: theme.colorScheme.outline.withValues(
+                alpha: 0.20,
+              ),
               valueColor: AlwaysStoppedAnimation(color),
             ),
           ),
@@ -547,8 +597,8 @@ class _StaffWorkloadRow extends StatelessWidget {
     final color = stats.ratio >= 0.7
         ? RadhaColors.success
         : stats.ratio >= 0.4
-            ? RadhaColors.warning
-            : RadhaColors.primary;
+        ? RadhaColors.warning
+        : RadhaColors.primary;
     final initials = stats.name
         .split(' ')
         .take(2)
@@ -610,7 +660,9 @@ class _StaffWorkloadRow extends StatelessWidget {
                   child: LinearProgressIndicator(
                     value: stats.ratio,
                     minHeight: 6,
-                    backgroundColor: theme.colorScheme.outline.withValues(alpha: 0.20),
+                    backgroundColor: theme.colorScheme.outline.withValues(
+                      alpha: 0.20,
+                    ),
                     valueColor: AlwaysStoppedAnimation(color),
                   ),
                 ),
@@ -641,7 +693,11 @@ class _TaskSliverHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     // SizedBox forces the child to exactly fill the declared height —
     // without it, a child shorter than `height` (this one renders ~55.5px
     // vs the 64px claimed) leaves the sliver's paintExtent short of its
@@ -678,9 +734,7 @@ class _UnderlineTabs extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: theme.colorScheme.outline),
-        ),
+        border: Border(bottom: BorderSide(color: theme.colorScheme.outline)),
       ),
       child: Row(
         children: [
@@ -852,8 +906,9 @@ class _TaskListState extends ConsumerState<_TaskList> {
       data: (state) {
         var items = state.items;
         if (widget.priorityFilter != null) {
-          items =
-              items.where((t) => t.priority == widget.priorityFilter).toList();
+          items = items
+              .where((t) => t.priority == widget.priorityFilter)
+              .toList();
         }
         if (widget.userId != null) {
           items = items
@@ -890,7 +945,8 @@ class _TaskListState extends ConsumerState<_TaskList> {
 
         // Only show the load-more footer when the full (unfiltered) list has
         // more pages — a local priority/assignee filter shouldn't imply more.
-        final showFooter = state.loadingMore &&
+        final showFooter =
+            state.loadingMore &&
             widget.priorityFilter == null &&
             widget.userId == null;
 

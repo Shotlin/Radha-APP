@@ -4,6 +4,7 @@
 // helpers to check feature access and usage limits. All feature-gating
 // in the app reads from this provider — no ad-hoc permission logic.
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../mode/app_mode_provider.dart';
@@ -58,7 +59,8 @@ class EntitlementState {
 
 // ─── Plan definitions ─────────────────────────────────────────────────────
 
-/// Which features each plan includes. Free trial gets everything for 90 days.
+/// Which features each plan includes. Free gets none of the gated features
+/// (scan + product info are never gated); the 90-day trial gets everything.
 ///
 /// Keyed by the real backend plan codes (`trial`/`starter`/`growth`/`pro`,
 /// see `subscription_plans` seed) rather than the old placeholder names
@@ -69,6 +71,9 @@ class EntitlementState {
 /// this tier mapping is a reasonable approximation, not the long-term
 /// per-feature entitlement source of truth.
 const Map<String, Set<Feature>> _planFeatures = {
+  // Free: barcode scan + product information only. Every `Feature` below is a
+  // paid capability, so the free plan grants none of them.
+  'free': <Feature>{},
   'trial': {
     Feature.advancedReports,
     Feature.inventory,
@@ -151,31 +156,32 @@ String requiredPlanFor(Feature feature) {
 
 // ─── Provider ─────────────────────────────────────────────────────────────
 
-/// Default entitlement state for consumer/auditor accounts that have no
-/// backend subscription (they aren't tenant users). Grants the consumer-tier
-/// health features but none of the business-only features.
-const _consumerDefaultState = EntitlementState(
-  planId: 'consumer',
+/// Entitlement state for accounts with no (readable) subscription: the free
+/// plan. Used for brand-new tenants whose subscription row is not there yet,
+/// auditors (who aren't plan holders) and expired subscriptions.
+const _freeState = EntitlementState(
+  planId: 'free',
   billingCycle: BillingCycle.monthly,
-  features: {
-    Feature.allergenProfile,
-    Feature.recallAlerts,
-    Feature.weeklyDigest,
-    Feature.healthyAlternatives,
-    Feature.ingredientExplainer,
-  },
+  features: <Feature>{},
 );
 
 /// Async notifier that fetches subscription status and exposes entitlement
 /// checks to any widget in the tree.
 class EntitlementController extends AsyncNotifier<EntitlementState> {
   @override
-  Future<EntitlementState> build() async {
-    final mode = ref.read(appModeProvider);
-    if (mode != AppMode.business) return _consumerDefaultState;
-    final api = ref.read(apiClientProvider);
-    final response = await api.getSubscription();
-    return _mapResponse(response);
+  Future<EntitlementState> build() => _load();
+
+  Future<EntitlementState> _load() async {
+    // Auditors are invited staff, not plan holders.
+    if (ref.read(appModeProvider) == AppMode.auditor) return _freeState;
+    try {
+      final response = await ref.read(apiClientProvider).getSubscription();
+      return _mapResponse(response);
+    } on DioException catch (e) {
+      // 404 = the tenant has no subscription row yet -> free plan.
+      if (e.response?.statusCode == 404) return _freeState;
+      rethrow;
+    }
   }
 
   /// Whether the current plan grants access to [feature].
@@ -193,18 +199,15 @@ class EntitlementController extends AsyncNotifier<EntitlementState> {
   /// Force-refreshes entitlement state from the backend.
   Future<void> refresh() async {
     state = const AsyncLoading();
-    state = await AsyncValue.guard(() async {
-      final mode = ref.read(appModeProvider);
-      if (mode != AppMode.business) return _consumerDefaultState;
-      final api = ref.read(apiClientProvider);
-      final response = await api.getSubscription();
-      return _mapResponse(response);
-    });
+    state = await AsyncValue.guard(_load);
   }
 
   EntitlementState _mapResponse(SubscriptionResponse response) {
     final planId = response.plan.code;
-    final features = _planFeatures[planId] ?? const {};
+    // An expired / cancelled / unpaid subscription no longer grants its plan's
+    // features: the account falls back to the free plan.
+    final entitled = response.isActive;
+    final features = entitled ? (_planFeatures[planId] ?? const <Feature>{}) : const <Feature>{};
 
     int? trialDays = response.trialDaysRemaining;
     if (trialDays != null && trialDays < 0) trialDays = 0;
@@ -213,7 +216,7 @@ class EntitlementController extends AsyncNotifier<EntitlementState> {
       planId: planId,
       billingCycle: BillingCycle.monthly,
       features: features,
-      trialDaysRemaining: planId == 'trial' ? trialDays : null,
+      trialDaysRemaining: entitled && planId == 'trial' ? trialDays : null,
     );
   }
 }

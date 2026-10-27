@@ -50,16 +50,16 @@ Future<void> runPostLoginFlow({
 
   await Future<void>.delayed(const Duration(milliseconds: 300));
 
-  // Route to business activation when:
-  //   a) The backend explicitly requested it, OR
-  //   b) The user chose the business onboarding path AND their account has
-  //      no store yet — this covers demo/new accounts where the segment
-  //      endpoint is unavailable or doesn't upgrade the role automatically.
+  // RADHA has one module (business). A user who has signed in but has no store
+  // yet -- every brand-new Google account -- goes through the setup questions
+  // (business activation), which creates their tenant on the Free plan (or the
+  // Pro trial if they accept it). Invited staff / auditors already have stores
+  // and skip it.
   final freshSession = ref.read(authControllerProvider).valueOrNull;
+  final isAuditor = freshSession?.roles.contains('auditor') ?? false;
   final needsBusinessActivation =
       nextScreen == OnboardingNextScreenDto.businessActivationFlow ||
-      (cameFromBusinessOnboarding &&
-          (freshSession == null || freshSession.stores.isEmpty));
+      (!isAuditor && (freshSession == null || freshSession.stores.isEmpty));
 
   if (needsBusinessActivation) {
     router.go(AppRoute.businessActivation);

@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/auth/auth_controller.dart';
-import '../../core/mode/app_mode_provider.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/dto/expiry_dto.dart';
 import '../../core/offline/db.dart';
@@ -76,33 +75,33 @@ class _ExpiryStats {
 
 final _expiryStatsProvider = FutureProvider.autoDispose
     .family<_ExpiryStats, String>((ref, storeId) async {
-  final client = ref.read(apiClientProvider);
-  final data = await client.getExpiries(
-    status: 'yellow,red',
-    storeId: storeId,
-    limit: 200,
-  );
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final weekEnd = today.add(const Duration(days: 7));
-  final monthEnd = today.add(const Duration(days: 30));
-  int critical = 0, thisWeek = 0, thisMonth = 0;
-  for (final item in data.items) {
-    if (item.status == 'red') critical++;
-    try {
-      final exp = DateTime.parse(item.expiryDate);
-      final expDay = DateTime(exp.year, exp.month, exp.day);
-      if (!expDay.isAfter(weekEnd)) thisWeek++;
-      if (!expDay.isAfter(monthEnd)) thisMonth++;
-    } catch (_) {}
-  }
-  return _ExpiryStats(
-    critical: critical,
-    thisWeek: thisWeek,
-    thisMonth: thisMonth,
-    items: data.items,
-  );
-});
+      final client = ref.read(apiClientProvider);
+      final data = await client.getExpiries(
+        status: 'yellow,red',
+        storeId: storeId,
+        limit: 200,
+      );
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final weekEnd = today.add(const Duration(days: 7));
+      final monthEnd = today.add(const Duration(days: 30));
+      int critical = 0, thisWeek = 0, thisMonth = 0;
+      for (final item in data.items) {
+        if (item.status == 'red') critical++;
+        try {
+          final exp = DateTime.parse(item.expiryDate);
+          final expDay = DateTime(exp.year, exp.month, exp.day);
+          if (!expDay.isAfter(weekEnd)) thisWeek++;
+          if (!expDay.isAfter(monthEnd)) thisMonth++;
+        } catch (_) {}
+      }
+      return _ExpiryStats(
+        critical: critical,
+        thisWeek: thisWeek,
+        thisMonth: thisMonth,
+        items: data.items,
+      );
+    });
 
 String _expiryCacheKey(_ExpiryQueryArgs args) =>
     '${args.storeId}|${args.apiStatus}';
@@ -200,21 +199,19 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context);
-    // Narrowed via .select(): this screen only cares about these four
+    // Narrowed via .select(): this screen only cares about these three
     // derived values, not the whole session object — an unrelated session
     // field changing (name, mobile, etc.) no longer rebuilds this screen.
-    final (authLoading, selectedStoreId, hasSelectableStores, isConsumerMode) =
-        ref.watch(
-          authControllerProvider.select((auth) {
-            final session = auth.valueOrNull;
-            return (
-              auth.isLoading,
-              session?.selectedStoreId,
-              session?.stores.isNotEmpty ?? false,
-              !(session?.roles.any(kBusinessRoles.contains) ?? false),
-            );
-          }),
+    final (authLoading, selectedStoreId, hasSelectableStores) = ref.watch(
+      authControllerProvider.select((auth) {
+        final session = auth.valueOrNull;
+        return (
+          auth.isLoading,
+          session?.selectedStoreId,
+          session?.stores.isNotEmpty ?? false,
         );
+      }),
+    );
 
     // Whole-page scroll: hero banner, stats, and 7-day risk strip scroll
     // away together with the list underneath (one continuous sheet) —
@@ -222,27 +219,22 @@ class _ExpiryListScreenState extends ConsumerState<ExpiryListScreen>
     final body = authLoading
         ? const _ExpiryListSkeleton()
         : selectedStoreId == null
-        ? _ExpiryNeedsStore(
-            canSelectStore: hasSelectableStores,
-            isConsumerMode: isConsumerMode,
-          )
+        ? _ExpiryNeedsStore(canSelectStore: hasSelectableStores)
         : NestedScrollView(
             headerSliverBuilder: (context, innerBoxIsScrolled) => [
-              if (!isConsumerMode) ...[
-                SliverToBoxAdapter(
-                  child: BizScreenHero(
-                    assetPath: RadhaAssets.heroExpiryIntelligence,
-                    headline: 'Act before stock becomes waste',
-                    subtitle: 'Track expiry dates across all batches',
-                  ),
+              SliverToBoxAdapter(
+                child: BizScreenHero(
+                  assetPath: RadhaAssets.heroExpiryIntelligence,
+                  headline: 'Act before stock becomes waste',
+                  subtitle: 'Track expiry dates across all batches',
                 ),
-                SliverToBoxAdapter(
-                  child: _ExpiryStatsRow(storeId: selectedStoreId),
-                ),
-                SliverToBoxAdapter(
-                  child: _ExpiryRiskTimeline(storeId: selectedStoreId),
-                ),
-              ],
+              ),
+              SliverToBoxAdapter(
+                child: _ExpiryStatsRow(storeId: selectedStoreId),
+              ),
+              SliverToBoxAdapter(
+                child: _ExpiryRiskTimeline(storeId: selectedStoreId),
+              ),
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _SliverTabBarDelegate(
@@ -356,21 +348,72 @@ class _ExpiryStatsRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final statsAsync = ref.watch(_expiryStatsProvider(storeId));
     return statsAsync.when(
-      loading: () => BizMetricRow(metrics: const [
-        BizMetric(value: '—', label: 'Critical', icon: Icons.warning_amber_rounded, color: RadhaColors.danger),
-        BizMetric(value: '—', label: 'This week', icon: Icons.calendar_today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '—', label: 'This month', icon: Icons.event_outlined, color: RadhaColors.complement),
-      ]),
-      error: (_, __) => BizMetricRow(metrics: const [
-        BizMetric(value: '—', label: 'Critical', icon: Icons.warning_amber_rounded, color: RadhaColors.danger),
-        BizMetric(value: '—', label: 'This week', icon: Icons.calendar_today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '—', label: 'This month', icon: Icons.event_outlined, color: RadhaColors.complement),
-      ]),
-      data: (s) => BizMetricRow(metrics: [
-        BizMetric(value: '${s.critical}', label: 'Critical', icon: Icons.warning_amber_rounded, color: RadhaColors.danger),
-        BizMetric(value: '${s.thisWeek}', label: 'This week', icon: Icons.calendar_today_outlined, color: RadhaColors.warning),
-        BizMetric(value: '${s.thisMonth}', label: 'This month', icon: Icons.event_outlined, color: RadhaColors.complement),
-      ]),
+      loading: () => BizMetricRow(
+        metrics: const [
+          BizMetric(
+            value: '—',
+            label: 'Critical',
+            icon: Icons.warning_amber_rounded,
+            color: RadhaColors.danger,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'This week',
+            icon: Icons.calendar_today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'This month',
+            icon: Icons.event_outlined,
+            color: RadhaColors.complement,
+          ),
+        ],
+      ),
+      error: (_, __) => BizMetricRow(
+        metrics: const [
+          BizMetric(
+            value: '—',
+            label: 'Critical',
+            icon: Icons.warning_amber_rounded,
+            color: RadhaColors.danger,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'This week',
+            icon: Icons.calendar_today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '—',
+            label: 'This month',
+            icon: Icons.event_outlined,
+            color: RadhaColors.complement,
+          ),
+        ],
+      ),
+      data: (s) => BizMetricRow(
+        metrics: [
+          BizMetric(
+            value: '${s.critical}',
+            label: 'Critical',
+            icon: Icons.warning_amber_rounded,
+            color: RadhaColors.danger,
+          ),
+          BizMetric(
+            value: '${s.thisWeek}',
+            label: 'This week',
+            icon: Icons.calendar_today_outlined,
+            color: RadhaColors.warning,
+          ),
+          BizMetric(
+            value: '${s.thisMonth}',
+            label: 'This month',
+            icon: Icons.event_outlined,
+            color: RadhaColors.complement,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -440,10 +483,10 @@ class _ExpiryRiskTimeline extends ConsumerWidget {
                     final color = count == 0
                         ? theme.colorScheme.outline.withValues(alpha: 0.40)
                         : count >= 5
-                            ? RadhaColors.danger
-                            : count >= 2
-                                ? RadhaColors.warning
-                                : RadhaColors.primary;
+                        ? RadhaColors.danger
+                        : count >= 2
+                        ? RadhaColors.warning
+                        : RadhaColors.primary;
                     return Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -451,7 +494,9 @@ class _ExpiryRiskTimeline extends ConsumerWidget {
                           width: 28,
                           height: 28,
                           decoration: BoxDecoration(
-                            color: color.withValues(alpha: count == 0 ? 0.12 : 0.16),
+                            color: color.withValues(
+                              alpha: count == 0 ? 0.12 : 0.16,
+                            ),
                             shape: BoxShape.circle,
                             border: Border.all(color: color),
                           ),
@@ -489,35 +534,16 @@ class _ExpiryRiskTimeline extends ConsumerWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Empty state shown when no store is selected.
-/// - Consumer accounts: explain this is a business/store feature.
 /// - Staff with assignable stores: prompt to pick a store.
 /// - Staff with no stores yet: tell them to contact their manager.
 class _ExpiryNeedsStore extends StatelessWidget {
-  const _ExpiryNeedsStore({
-    required this.canSelectStore,
-    required this.isConsumerMode,
-  });
+  const _ExpiryNeedsStore({required this.canSelectStore});
 
   final bool canSelectStore;
-  final bool isConsumerMode;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
-
-    if (isConsumerMode) {
-      return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(RadhaSpacing.space16),
-          child: EmptyState(
-            illustration:
-                const MorCompanion(mood: MorMood.guard, size: 104),
-            title: l10n.expiryConsumerTitle,
-            body: l10n.expiryConsumerBody,
-          ),
-        ),
-      );
-    }
 
     return Center(
       child: SingleChildScrollView(
@@ -538,9 +564,9 @@ class _ExpiryNeedsStore extends StatelessWidget {
               context.push(AppRoute.selectStore);
               return;
             }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(l10n.selectStoreEmptyBody)),
-            );
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(l10n.selectStoreEmptyBody)));
           },
         ),
       ),
@@ -563,7 +589,11 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => height;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return ColoredBox(
       color: Theme.of(context).colorScheme.surface,
       child: child,
@@ -624,7 +654,9 @@ class _SegmentedTabs extends StatelessWidget {
                       color: i == index
                           ? theme.colorScheme.onSurface
                           : theme.colorScheme.onSurfaceVariant,
-                      fontWeight: i == index ? FontWeight.w700 : FontWeight.w500,
+                      fontWeight: i == index
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                     ),
                   ),
                 ),
@@ -750,7 +782,9 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
                         parent: BouncingScrollPhysics(),
                       ),
                       children: [
-                        SizedBox(height: MediaQuery.of(context).size.height * 0.14),
+                        SizedBox(
+                          height: MediaQuery.of(context).size.height * 0.14,
+                        ),
                         Center(
                           child: EmptyState(
                             illustration: MorCompanion(
@@ -796,7 +830,9 @@ class _ExpiryTabContentState extends ConsumerState<_ExpiryTabContent>
                     itemBuilder: (context, index) {
                       if (index >= items.length) {
                         return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: RadhaSpacing.space16),
+                          padding: EdgeInsets.symmetric(
+                            vertical: RadhaSpacing.space16,
+                          ),
                           child: Center(
                             child: SizedBox(
                               width: 22,
@@ -910,7 +946,8 @@ class _ExpiryListTile extends StatelessWidget {
                   [
                     if (item.batchNumber != null)
                       l10n.expiryBatch(item.batchNumber!),
-                    if (item.quantity != null) l10n.expiryQty('${item.quantity}'),
+                    if (item.quantity != null)
+                      l10n.expiryQty('${item.quantity}'),
                     l10n.expiryExp(item.expiryDate),
                   ].join(' · '),
                   maxLines: 1,
@@ -1066,7 +1103,11 @@ class _OfflineCacheBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.cloud_off_rounded, size: 16, color: RadhaColors.warning),
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 16,
+            color: RadhaColors.warning,
+          ),
           const SizedBox(width: RadhaSpacing.space8),
           Expanded(
             child: Text(
@@ -1104,15 +1145,9 @@ class _ExpiryError extends StatelessWidget {
               semanticLabel: l10n.expiryCouldNotLoadSemantic,
             ),
             const SizedBox(height: RadhaSpacing.space16),
-            Text(
-              l10n.expiryLoadError,
-              style: theme.textTheme.bodyMedium,
-            ),
+            Text(l10n.expiryLoadError, style: theme.textTheme.bodyMedium),
             const SizedBox(height: RadhaSpacing.space16),
-            OutlinedButton(
-              onPressed: onRetry,
-              child: Text(l10n.tryAgain),
-            ),
+            OutlinedButton(onPressed: onRetry, child: Text(l10n.tryAgain)),
           ],
         ),
       ),

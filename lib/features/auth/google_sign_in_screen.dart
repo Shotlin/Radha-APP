@@ -147,27 +147,15 @@ class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
                           onPressed: _loading ? null : () => context.pop(),
                         ),
                       const SizedBox(width: 8),
-                      const HeroBrand(),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: _loading
+                      // Hidden developer/admin login: long-press the logo.
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onLongPress: _loading
                             ? null
-                            : () =>
-                                  context.push(AppRoute.authDeveloperBusiness),
-                        icon: const Icon(
-                          Icons.developer_mode_rounded,
-                          size: 17,
-                        ),
-                        label: const Text('Admin developer'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          backgroundColor: Colors.black.withValues(alpha: 0.28),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 7,
-                          ),
-                        ),
+                            : () => context.push(AppRoute.authDeveloperBusiness),
+                        child: const HeroBrand(),
                       ),
+                      const Spacer(),
                     ],
                   ),
                 ),
@@ -250,20 +238,6 @@ class _GoogleSignInScreenState extends ConsumerState<GoogleSignInScreen> {
                             onPressed: _loading ? null : _continueWithGoogle,
                           ),
                           const SizedBox(height: 16),
-                          Center(
-                            child: TextButton(
-                              onPressed: _loading
-                                  ? null
-                                  : () => context.push(AppRoute.authLegacyLink),
-                              child: Text(
-                                'Sign in with your phone number instead',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: RadhaColors.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
                           const SizedBox(height: 8),
                           Center(
                             child: Text.rich(

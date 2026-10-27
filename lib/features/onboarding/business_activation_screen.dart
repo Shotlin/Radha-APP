@@ -29,6 +29,7 @@ class _BusinessActivationScreenState
   final _cityCtrl = TextEditingController();
   final _pincodeCtrl = TextEditingController();
   bool _storeNameEdited = false;
+  bool _acceptTrial = true;
   bool _loading = false;
   String? _error;
 
@@ -58,15 +59,20 @@ class _BusinessActivationScreenState
     });
     try {
       final api = ref.read(apiClientProvider);
-      await api.activateBusiness(ActivateBusinessRequest(
-        businessName: _businessNameCtrl.text.trim(),
-        storeName: _storeNameCtrl.text.trim(),
-        storeCity: _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
-        storePincode:
-            _pincodeCtrl.text.trim().isEmpty ? null : _pincodeCtrl.text.trim(),
-        acceptTrialPro: true,
-        preset: widget.preset,
-      ));
+      await api.activateBusiness(
+        ActivateBusinessRequest(
+          businessName: _businessNameCtrl.text.trim(),
+          storeName: _storeNameCtrl.text.trim(),
+          storeCity: _cityCtrl.text.trim().isEmpty
+              ? null
+              : _cityCtrl.text.trim(),
+          storePincode: _pincodeCtrl.text.trim().isEmpty
+              ? null
+              : _pincodeCtrl.text.trim(),
+          acceptTrialPro: _acceptTrial,
+          preset: widget.preset,
+        ),
+      );
       // Refresh the session so the new tenant + store are picked up.
       await ref.read(authControllerProvider.notifier).refreshSession();
       if (mounted) {
@@ -111,8 +117,11 @@ class _BusinessActivationScreenState
                     borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
                   ),
                   alignment: Alignment.center,
-                  child: Icon(Icons.storefront_outlined,
-                      color: cs.primary, size: 26),
+                  child: Icon(
+                    Icons.storefront_outlined,
+                    color: cs.primary,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -126,8 +135,9 @@ class _BusinessActivationScreenState
                 const SizedBox(height: 6),
                 Text(
                   'A few quick details and your store is ready to go.',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: cs.onSurfaceVariant),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: cs.onSurfaceVariant,
+                  ),
                 ),
                 const SizedBox(height: 32),
 
@@ -139,7 +149,10 @@ class _BusinessActivationScreenState
                   textCapitalization: TextCapitalization.words,
                   textInputAction: TextInputAction.next,
                   onChanged: _onBusinessNameChanged,
-                  decoration: _inputDecoration(cs, hint: 'e.g. Sharma General Store'),
+                  decoration: _inputDecoration(
+                    cs,
+                    hint: 'e.g. Sharma General Store',
+                  ),
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
@@ -153,7 +166,10 @@ class _BusinessActivationScreenState
                   textCapitalization: TextCapitalization.words,
                   textInputAction: TextInputAction.next,
                   onChanged: (_) => _storeNameEdited = true,
-                  decoration: _inputDecoration(cs, hint: 'e.g. Main Road Branch'),
+                  decoration: _inputDecoration(
+                    cs,
+                    hint: 'e.g. Main Road Branch',
+                  ),
                   validator: (v) =>
                       (v == null || v.trim().isEmpty) ? 'Required' : null,
                 ),
@@ -173,7 +189,10 @@ class _BusinessActivationScreenState
                             controller: _cityCtrl,
                             textCapitalization: TextCapitalization.words,
                             textInputAction: TextInputAction.next,
-                            decoration: _inputDecoration(cs, hint: 'e.g. Mumbai'),
+                            decoration: _inputDecoration(
+                              cs,
+                              hint: 'e.g. Mumbai',
+                            ),
                           ),
                         ],
                       ),
@@ -205,28 +224,31 @@ class _BusinessActivationScreenState
 
                 const SizedBox(height: 12),
 
-                // Trial note
+                // Plan choice: Pro trial (default) or straight to Free.
                 Container(
-                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: cs.primary.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.verified_outlined,
-                          color: cs.primary, size: 18),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Includes 14-day Pro trial — no card needed.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: cs.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                  child: SwitchListTile(
+                    value: _acceptTrial,
+                    onChanged: _loading
+                        ? null
+                        : (v) => setState(() => _acceptTrial = v),
+                    secondary: Icon(Icons.verified_outlined, color: cs.primary),
+                    title: Text(
+                      'Start the 90-day Pro trial',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: cs.primary,
+                        fontWeight: FontWeight.w700,
                       ),
-                    ],
+                    ),
+                    subtitle: Text(
+                      _acceptTrial
+                          ? 'Every feature unlocked, no card needed. After the trial you stay on the Free plan (barcode scan and product info).'
+                          : 'You will start on the Free plan: barcode scan and product info. Upgrade any time.',
+                      style: theme.textTheme.bodySmall,
+                    ),
                   ),
                 ),
 
@@ -234,14 +256,14 @@ class _BusinessActivationScreenState
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      Icon(Icons.error_outline,
-                          color: cs.error, size: 18),
+                      Icon(Icons.error_outline, color: cs.error, size: 18),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           _error!,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: cs.error),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: cs.error,
+                          ),
                         ),
                       ),
                     ],
@@ -269,8 +291,10 @@ class _BusinessActivationScreenState
         hintStyle: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
         filled: true,
         fillColor: cs.surfaceContainer,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(RadhaRadii.radiusMd),
           borderSide: BorderSide.none,
@@ -296,10 +320,10 @@ class _Label extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-        text,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-      );
+    text,
+    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    ),
+  );
 }

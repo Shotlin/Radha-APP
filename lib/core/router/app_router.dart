@@ -754,16 +754,20 @@ String? _redirect(Ref ref, GoRouterState state) {
     return isAuditor ? AppRoute.tasks : AppRoute.home;
   }
 
-  // 3. No session (auditor path) ⇒ funnel to OTP.
+  // 3. No session (auditor path) ⇒ funnel to Google sign-in (mobile/OTP login
+  //    is switched off server-side).
   if (session == null) {
     if (_isPublic(location)) return null;
-    return AppRoute.authOtp;
+    return AppRoute.authGoogle;
   }
 
-  // 3b. Owner with no store yet → business registration (must happen before
-  //     the store-selector check so we don't dead-end on an empty list).
-  final isOwnerRole = session.roles.any((r) => r == 'owner');
-  if (isOwnerRole &&
+  // 3b. Signed in but no store yet (every brand-new Google account, or an
+  //     owner who never finished setup) → business registration, which
+  //     creates the tenant on the Free plan. Must happen before the
+  //     store-selector check so we don't dead-end on an empty list.
+  final needsBusinessSetup =
+      !isAuditor && session.roles.any((r) => r == 'owner' || r == 'consumer');
+  if (needsBusinessSetup &&
       session.stores.isEmpty &&
       location != AppRoute.businessActivation &&
       !_isPublic(location)) {
